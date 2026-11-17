@@ -66,16 +66,7 @@ jobs:
           for mp in build-system/fake-codesigning/profiles/*.mobileprovision; do
             TMP_PLIST="$(mktemp).plist"
             security cms -D -i "$mp" > "$TMP_PLIST"
-            python3 - "$TMP_PLIST" <<'PYEOF'
-import datetime, plistlib, sys
-p = sys.argv[1]
-with open(p, "rb") as f:
-    data = plistlib.load(f)
-data["ExpirationDate"] = datetime.datetime(2030, 10, 20, 0, 0, 0)
-data.pop("DER-Encoded-Profile", None)
-with open(p, "wb") as f:
-    plistlib.dump(data, f)
-PYEOF
+            python3 -c 'import datetime, plistlib, sys; p = sys.argv[1]; d = plistlib.load(open(p, "rb")); d["ExpirationDate"] = datetime.datetime(2030, 10, 20, 0, 0, 0); d.pop("DER-Encoded-Profile", None); plistlib.dump(d, open(p, "wb"))' "$TMP_PLIST"
             security cms -S -k temp.keychain -N "$SIGN_ID" -i "$TMP_PLIST" -o "$mp"
             rm -f "$TMP_PLIST"
           done
