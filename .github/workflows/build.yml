@@ -101,7 +101,7 @@ jobs:
 
           mkdir -p "$GITHUB_WORKSPACE/dist"
           cp "$SOURCE_DIR/build/artifacts/Telegram.ipa" "$GITHUB_WORKSPACE/dist/MediaTok.ipa"
-          cp "$SOURCE_DIR/build/artifacts/Telegram.DSYMs.zip" "$GITHUB_WORKSPACE/dist/MediaTok.DSYMs.zip"
+          [ -f "$SOURCE_DIR/build/artifacts/Telegram.DSYMs.zip" ] && cp "$SOURCE_DIR/build/artifacts/Telegram.DSYMs.zip" "$GITHUB_WORKSPACE/dist/MediaTok.DSYMs.zip" || true
           ls -lh "$GITHUB_WORKSPACE/dist"
 
       - name: Upload Build Artifacts
