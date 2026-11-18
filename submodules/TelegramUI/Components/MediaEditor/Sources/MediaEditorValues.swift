@@ -170,9 +170,9 @@ public enum MediaQualityPreset: Int32 {
             // GHOST: side of the round video from its settings; upstream's by default.
             return GGRoundVideoConfig.exportSide(VideoMessageExportSettings.maximumDimension)
         case .profileLow:
-            return 720.0
+            return 1080.0
         case .profile, .profileHigh, .profileVeryHigh:
-            return 800.0
+            return 1280.0
         case .sticker:
             return 512.0
         default:
@@ -196,13 +196,13 @@ public enum MediaQualityPreset: Int32 {
             // GHOST: bitrate of the round video from its settings; 1200 (upstream) by default.
             return GGRoundVideoConfig.exportBitrate(1200)
         case .profileLow:
-            return 1100
+            return 5500
         case .profile:
-            return 1500
+            return 7000
         case .profileHigh:
-            return 2000
+            return 8000
         case .profileVeryHigh:
-            return 2400
+            return 9000
         case .sticker:
             return 1000
         default:
@@ -1956,13 +1956,13 @@ public func recommendedVideoExportConfiguration(values: MediaEditorValues, durat
     } else {
         if isAvatar {
             if duration <= 2.0 {
-                videoBitrate = 2400
+                videoBitrate = 9000
             } else if duration <= 5.0 {
-                videoBitrate = 2000
+                videoBitrate = 8000
             } else if duration <= 8.0 {
-                videoBitrate = 1500
+                videoBitrate = 7000
             } else {
-                videoBitrate = 1100
+                videoBitrate = 6500
             }
         } else if duration < 10 {
             videoBitrate = 5800
@@ -2017,9 +2017,9 @@ public func recommendedVideoExportConfiguration(values: MediaEditorValues, durat
         }
     } else {
         if isAvatar {
-            width = 800
-            height = 800
-            frameRate = 30
+            width = 1280
+            height = 1280
+            frameRate = 60
             useHEVC = false
             values = values.withUpdatedQualityPreset(.profile)
         } else if isSticker {

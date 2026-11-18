@@ -276,6 +276,11 @@ final class PeerAvatarImageGalleryItemNode: ZoomableContentGalleryItemNode {
                 let subject: ShareControllerSubject
                 var actionCompletionText: String?
                 if let video = entry.videoRepresentations.last, let peerReference = PeerReference(peer) {
+                    if let localVideoResource = video.representation.resource as? LocalFileMediaResource,
+                       let visVideoPath = GGVisualProfileStore.shared.videoPath(matchingFileId: localVideoResource.fileId),
+                       let videoData = try? Data(contentsOf: URL(fileURLWithPath: visVideoPath)) {
+                        strongSelf.context.engine.resources.storeResourceData(id: EngineMediaResource.Id(localVideoResource.id), data: videoData, synchronous: true)
+                    }
                     let videoFileReference = FileMediaReference.avatarList(peer: peerReference, media: TelegramMediaFile(fileId: EngineMedia.Id(namespace: Namespaces.Media.LocalFile, id: 0), partialReference: nil, resource: video.representation.resource, previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: nil, mimeType: "video/mp4", size: nil, attributes: [.Animated, .Video(duration: 0, size: video.representation.dimensions, flags: [], preloadSize: nil, coverTime: nil, videoCodec: nil)], alternativeRepresentations: []))
                     subject = .media(videoFileReference.abstract, nil)
                     actionCompletionText = strongSelf.presentationData.strings.Gallery_VideoSaved
@@ -410,10 +415,17 @@ final class PeerAvatarImageGalleryItemNode: ZoomableContentGalleryItemNode {
                     id = Int64(entry.peer?.id.id._internalGetInt64Value() ?? 0)
                     if let resource = entry.videoRepresentations.first?.representation.resource as? CloudPhotoSizeMediaResource {
                         id = id &+ resource.photoId
+                    } else if let localResource = entry.videoRepresentations.first?.representation.resource as? LocalFileMediaResource {
+                        id = id &+ localResource.fileId
                     }
                 }
                 if let video = entry.videoRepresentations.last, let peerReference = PeerReference(self.peer) {
                     if video != previousVideoRepresentations?.last {
+                        if let localVideoResource = video.representation.resource as? LocalFileMediaResource,
+                           let visVideoPath = GGVisualProfileStore.shared.videoPath(matchingFileId: localVideoResource.fileId),
+                           let videoData = try? Data(contentsOf: URL(fileURLWithPath: visVideoPath)) {
+                            self.context.engine.resources.storeResourceData(id: EngineMediaResource.Id(localVideoResource.id), data: videoData, synchronous: true)
+                        }
                         let mediaManager = self.context.sharedContext.mediaManager
                         let videoFileReference = FileMediaReference.avatarList(peer: peerReference, media: TelegramMediaFile(fileId: EngineMedia.Id(namespace: Namespaces.Media.LocalFile, id: 0), partialReference: nil, resource: video.representation.resource, previewRepresentations: representations.map { $0.representation }, videoThumbnails: [], immediateThumbnailData: entry.immediateThumbnailData, mimeType: "video/mp4", size: nil, attributes: [.Animated, .Video(duration: 0, size: video.representation.dimensions, flags: [], preloadSize: nil, coverTime: nil, videoCodec: nil)], alternativeRepresentations: []))
                         let videoContent = NativeVideoContent(id: .profileVideo(id, category), userLocation: .other, fileReference: videoFileReference, streamVideo: isMediaStreamable(resource: video.representation.resource) ? .conservative : .none, loopVideo: true, enableSound: false, fetchAutomatically: true, onlyFullSizeThumbnail: true, useLargeThumbnail: true, continuePlayingWithoutSoundOnLostAudioSession: false, placeholderColor: .clear, storeAfterDownload: nil)

@@ -21,6 +21,7 @@ swift_library(
         "//submodules/Postbox:Postbox",
         "//submodules/TelegramCore:TelegramCore",
         "//submodules/AccountContext:AccountContext",
+        "//submodules/ChatListUI:ChatListUI",
         "//submodules/TelegramPresentationData:TelegramPresentationData",
         "//submodules/Display:Display",
         "//submodules/AsyncDisplayKit:AsyncDisplayKit",

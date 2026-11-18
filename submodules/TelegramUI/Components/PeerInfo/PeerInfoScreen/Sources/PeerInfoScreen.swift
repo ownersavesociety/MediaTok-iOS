@@ -2193,6 +2193,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
             }
                         
             // GHOST: the Settings tab is rebuilt when features change what it shows (GGSettingsTabHooks.invalidate)
+            GGVisualProfileStore.shared.checkGlobal4kAvatar(for: peerId.ggKey)
             screenData = combineLatest(ggSettingsTabRefreshing(peerInfoScreenSettingsData(context: context, peerId: peerId, accountsAndPeers: self.accountsAndPeers.get(), activeSessionsContextAndCount: self.activeSessionsContextAndCount.get(), notificationExceptions: self.notificationExceptions.get(), privacySettings: self.privacySettings.get(), archivedStickerPacks: self.archivedPacks.get(), hasPassport: hasPassport, starsContext: starsContext, tonContext: tonContext)), GGVisualProfileStore.shared.revisionSignal)
             |> map { value, _ -> PeerInfoScreenData in
                 return value
@@ -2307,6 +2308,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
                 switchToUpgradableGifts = true
             }
             
+            GGVisualProfileStore.shared.checkGlobal4kAvatar(for: peerId.ggKey)
             screenData = combineLatest(peerInfoScreenData(context: context, peerId: peerId, strings: self.presentationData.strings, dateTimeFormat: self.presentationData.dateTimeFormat, isSettings: self.isSettings, isMyProfile: self.isMyProfile, hintGroupInCommon: hintGroupInCommon, existingRequestsContext: requestsContext, existingProfileGiftsContext: profileGiftsContext, existingProfileGiftsCollectionsContext: nil, chatLocation: self.chatLocation, chatLocationContextHolder: self.chatLocationContextHolder, sharedMediaFromForumTopic: self.sharedMediaFromForumTopic, privacySettings: self.privacySettings.get(), forceHasGifts: initialPaneKey == .gifts, switchToUpgradableGifts: switchToUpgradableGifts), GGVisualProfileStore.shared.revisionSignal)
             |> map { value, _ -> PeerInfoScreenData in
                 return value

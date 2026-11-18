@@ -9629,7 +9629,7 @@ public enum GGStrings {
                 return GGLocalization.shared.string("networkSpoof.visual.avatarActive")
             }
 
-            /// Local 4K avatar (up to 3840px)
+            /// 4K Photo / Video avatar (up to 3840px)
             public static var avatarHeader: Swift.String {
                 return GGLocalization.shared.string("networkSpoof.visual.avatarHeader")
             }
@@ -9639,7 +9639,7 @@ public enum GGStrings {
                 return GGLocalization.shared.string("networkSpoof.visual.avatarNotSet")
             }
 
-            /// Choose photo from gallery
+            /// Choose 4K photo or video
             public static var avatarPick: Swift.String {
                 return GGLocalization.shared.string("networkSpoof.visual.avatarPick")
             }

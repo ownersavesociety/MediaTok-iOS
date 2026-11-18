@@ -18,19 +18,47 @@ import PeerAvatarGalleryUI
 import PresentationDataUtils
 import LegacyComponents
 import LegacyMediaPickerUI
+import GGCore
 
-private func sharedSetupProfilePhotoUpload(context: AccountContext, image: UIImage, mode: PeerInfoAvatarEditingMode) -> LocalFileMediaResource? {
-    guard let data = image.jpegData(compressionQuality: 0.6) else {
+private struct GGPreparedProfilePhoto {
+    let resource: LocalFileMediaResource
+    let data: Data
+    let width: Int
+    let height: Int
+}
+
+private func ggPrepareProfilePhotoUpload(context: AccountContext, image: UIImage) -> GGPreparedProfilePhoto? {
+    guard let data = image.jpegData(compressionQuality: 0.96) else {
         return nil
     }
-    
+    let width = max(1, Int((image.size.width * image.scale).rounded()))
+    let height = max(1, Int((image.size.height * image.scale).rounded()))
     let resource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max))
     context.engine.resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data)
-    let representation = TelegramMediaImageRepresentation(dimensions: PixelDimensions(width: 640, height: 640), resource: resource, progressiveSizes: [], immediateThumbnailData: nil, hasVideo: false, isPersonal: mode == .custom)
-    
+    return GGPreparedProfilePhoto(resource: resource, data: data, width: width, height: height)
+}
+
+private func ggMirrorNativeAvatarUpload(peerId: EnginePeer.Id, mode: PeerInfoAvatarEditingMode, prepared: GGPreparedProfilePhoto, videoData: Data?) {
+    guard mode == .generic || mode == .accept else {
+        return
+    }
+    let peerKey = peerId.ggKey
+    if let videoData, !videoData.isEmpty {
+        GGVisualProfileStore.shared.saveAvatarVideoData(videoData, coverData: prepared.data, width: prepared.width, height: prepared.height, for: peerKey)
+        GGVisualProfileStore.shared.publishGlobal4kAvatar(for: peerKey, photoData: prepared.data, videoData: videoData)
+    } else {
+        GGVisualProfileStore.shared.saveAvatarData(prepared.data, width: prepared.width, height: prepared.height, for: peerKey)
+        GGVisualProfileStore.shared.publishGlobal4kAvatar(for: peerKey, photoData: prepared.data, videoData: nil)
+    }
+}
+
+private func sharedSetupProfilePhotoUpload(context: AccountContext, image: UIImage, mode: PeerInfoAvatarEditingMode) -> GGPreparedProfilePhoto? {
+    guard let prepared = ggPrepareProfilePhotoUpload(context: context, image: image) else {
+        return nil
+    }
+    let representation = TelegramMediaImageRepresentation(dimensions: PixelDimensions(width: Int32(prepared.width), height: Int32(prepared.height)), resource: prepared.resource, progressiveSizes: [], immediateThumbnailData: nil, hasVideo: false, isPersonal: mode == .custom)
     let _ = representation
-    
-    return resource
+    return prepared
 }
 
 private func mediaEditorAvatarClipStyle(peer: EnginePeer) -> MediaEditorScreenImpl.AvatarClipStyle {
@@ -260,14 +288,14 @@ public extension PeerInfoScreenImpl {
     }
     
     static func updateProfilePhoto(parentController: ViewController, context: AccountContext, peer: EnginePeer, image: UIImage, mode: PeerInfoAvatarEditingMode, uploadStatus: Promise<PeerInfoAvatarUploadStatus>?) {
-        guard let resource = sharedSetupProfilePhotoUpload(context: context, image: image, mode: mode) else {
+        guard let prepared = sharedSetupProfilePhotoUpload(context: context, image: image, mode: mode) else {
             uploadStatus?.set(.single(.done))
             return
         }
         
         let signal: Signal<UpdatePeerPhotoStatus, UploadPeerPhotoError>
 
-        signal = context.engine.peers.updatePeerPhoto(peerId: peer.id, photo: context.engine.peers.uploadedPeerPhoto(resource: EngineMediaResource(resource)), mapResourceToAvatarSizes: { resource, representations in
+        signal = context.engine.peers.updatePeerPhoto(peerId: peer.id, photo: context.engine.peers.uploadedPeerPhoto(resource: EngineMediaResource(prepared.resource)), mapResourceToAvatarSizes: { resource, representations in
             return mapResourceToAvatarSizes(engine: context.engine, resource: resource, representations: representations)
         })
         
@@ -288,6 +316,7 @@ public extension PeerInfoScreenImpl {
             }
         }
 
+        let peerId = peer.id
         let updateAvatarDisposable = MetaDisposable()
         updateAvatarDisposable.set((signal
         |> deliverOnMainQueue).startStandalone(next: { [weak parentController] result in
@@ -304,6 +333,7 @@ public extension PeerInfoScreenImpl {
             
             if case .complete = result {
                 dismissStatus?()
+                ggMirrorNativeAvatarUpload(peerId: peerId, mode: mode, prepared: prepared, videoData: nil)
             }
         }))
     }
@@ -321,10 +351,11 @@ public extension PeerInfoScreenImpl {
                 uploadVideo = false
             }
         }
-        guard let photoResource = sharedSetupProfilePhotoUpload(context: context, image: image, mode: mode) else {
+        guard let preparedPhoto = sharedSetupProfilePhotoUpload(context: context, image: image, mode: mode) else {
             uploadStatus?.set(.single(.done))
             return
         }
+        let photoResource = preparedPhoto.resource
         
         var videoStartTimestamp: Double? = nil
         if let values, let coverImageTimestamp =  values.coverImageTimestamp, coverImageTimestamp > 0.0 {
@@ -333,6 +364,7 @@ public extension PeerInfoScreenImpl {
     
         let account = context.account
         let context = context
+        let exportedVideoData = Atomic<Data?>(value: nil)
         
         let videoResource: Signal<TelegramMediaResource?, UploadPeerPhotoError>
         if uploadVideo, let video, let values {
@@ -385,6 +417,7 @@ public extension PeerInfoScreenImpl {
                             switch status {
                             case .completed:
                                 if let data = try? Data(contentsOf: URL(fileURLWithPath: tempFile.path), options: .mappedIfSafe) {
+                                    let _ = exportedVideoData.swap(Data(data))
                                     let resource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max))
                                     TelegramEngine(account: account).resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data, synchronous: true)
                                     subscriber.putNext(resource)
@@ -442,6 +475,7 @@ public extension PeerInfoScreenImpl {
 
             if case .complete = result {
                 dismissStatus?()
+                ggMirrorNativeAvatarUpload(peerId: peerId, mode: mode, prepared: preparedPhoto, videoData: exportedVideoData.with { $0 })
             }
         }))
     }
@@ -794,8 +828,8 @@ extension PeerInfoScreenImpl {
         (self.navigationController?.topViewController as? ViewController)?.present(actionSheet, in: .window(.root))
     }
     
-    private func setupProfilePhotoUpload(image: UIImage, mode: PeerInfoAvatarEditingMode, indefiniteProgress: Bool) -> LocalFileMediaResource? {
-        guard let data = image.jpegData(compressionQuality: 0.6) else {
+    private func setupProfilePhotoUpload(image: UIImage, mode: PeerInfoAvatarEditingMode, indefiniteProgress: Bool) -> GGPreparedProfilePhoto? {
+        guard let prepared = ggPrepareProfilePhotoUpload(context: self.context, image: image) else {
             return nil
         }
         
@@ -805,9 +839,7 @@ extension PeerInfoScreenImpl {
         }
         self.controllerNode.scrollNode.view.setContentOffset(CGPoint(), animated: false)
         
-        let resource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max))
-        self.context.engine.resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data)
-        let representation = TelegramMediaImageRepresentation(dimensions: PixelDimensions(width: 640, height: 640), resource: resource, progressiveSizes: [], immediateThumbnailData: nil, hasVideo: false, isPersonal: mode == .custom)
+        let representation = TelegramMediaImageRepresentation(dimensions: PixelDimensions(width: Int32(prepared.width), height: Int32(prepared.height)), resource: prepared.resource, progressiveSizes: [], immediateThumbnailData: nil, hasVideo: false, isPersonal: mode == .custom)
         
         if [.suggest, .fallback].contains(mode) {
         } else {
@@ -821,7 +853,7 @@ extension PeerInfoScreenImpl {
         }
         self.controllerNode.headerNode.ignoreCollapse = false
         
-        return resource
+        return prepared
     }
     
     public func updateProfilePhoto(_ image: UIImage) {
@@ -829,10 +861,11 @@ extension PeerInfoScreenImpl {
     }
     
     public func updateProfilePhoto(_ image: UIImage, mode: PeerInfoAvatarEditingMode, uploadStatus: Promise<PeerInfoAvatarUploadStatus>?) {
-        guard let resource = setupProfilePhotoUpload(image: image, mode: mode, indefiniteProgress: false) else {
+        guard let prepared = setupProfilePhotoUpload(image: image, mode: mode, indefiniteProgress: false) else {
             uploadStatus?.set(.single(.done))
             return
         }
+        let resource = prepared.resource
         
         let signal: Signal<UpdatePeerPhotoStatus, UploadPeerPhotoError>
         if self.isSettings || self.isMyProfile {
@@ -896,6 +929,7 @@ extension PeerInfoScreenImpl {
             
             if case .complete = result {
                 dismissStatus?()
+                ggMirrorNativeAvatarUpload(peerId: strongSelf.avatarPeerId, mode: mode, prepared: prepared, videoData: nil)
                 
                 let _ = (strongSelf.context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: strongSelf.avatarPeerId))
                 |> deliverOnMainQueue).startStandalone(next: { [weak self] peer in
@@ -938,10 +972,11 @@ extension PeerInfoScreenImpl {
                 uploadVideo = false
             }
         }
-        guard let photoResource = self.setupProfilePhotoUpload(image: image, mode: mode, indefiniteProgress: !uploadVideo) else {
+        guard let preparedPhoto = self.setupProfilePhotoUpload(image: image, mode: mode, indefiniteProgress: !uploadVideo) else {
             uploadStatus?.set(.single(.done))
             return
         }
+        let photoResource = preparedPhoto.resource
         
         var videoStartTimestamp: Double? = nil
         if let values, let coverImageTimestamp =  values.coverImageTimestamp, coverImageTimestamp > 0.0 {
@@ -950,6 +985,7 @@ extension PeerInfoScreenImpl {
     
         let account = self.context.account
         let context = self.context
+        let exportedVideoData = Atomic<Data?>(value: nil)
         
         let videoResource: Signal<TelegramMediaResource?, UploadPeerPhotoError>
         if uploadVideo, let video, let values {
@@ -1005,6 +1041,7 @@ extension PeerInfoScreenImpl {
                             switch status {
                             case .completed:
                                 if let data = try? Data(contentsOf: URL(fileURLWithPath: tempFile.path), options: .mappedIfSafe) {
+                                    let _ = exportedVideoData.swap(Data(data))
                                     let resource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max))
                                     TelegramEngine(account: account).resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data, synchronous: true)
                                     subscriber.putNext(resource)
@@ -1096,6 +1133,7 @@ extension PeerInfoScreenImpl {
             
             if case .complete = result {
                 dismissStatus?()
+                ggMirrorNativeAvatarUpload(peerId: peerId, mode: mode, prepared: preparedPhoto, videoData: exportedVideoData.with { $0 })
                 
                 let _ = (strongSelf.context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: strongSelf.avatarPeerId))
                 |> deliverOnMainQueue).startStandalone(next: { [weak self] peer in
@@ -1143,9 +1181,10 @@ extension PeerInfoScreenImpl {
                 uploadVideo = false
             }
         }
-        guard let photoResource = self.setupProfilePhotoUpload(image: image, mode: mode, indefiniteProgress: !uploadVideo) else {
+        guard let preparedPhoto = self.setupProfilePhotoUpload(image: image, mode: mode, indefiniteProgress: !uploadVideo) else {
             return
         }
+        let photoResource = preparedPhoto.resource
         
         var videoStartTimestamp: Double? = nil
         if let adjustments = adjustments, adjustments.videoStartValue > 0.0 {
@@ -1154,6 +1193,7 @@ extension PeerInfoScreenImpl {
     
         let account = self.context.account
         let context = self.context
+        let exportedVideoData = Atomic<Data?>(value: nil)
         
         let videoResource: Signal<TelegramMediaResource?, UploadPeerPhotoError>
         if uploadVideo {
@@ -1206,6 +1246,7 @@ extension PeerInfoScreenImpl {
                         var value = stat()
                         if stat(result.fileURL.path, &value) == 0 {
                             if let data = try? Data(contentsOf: result.fileURL) {
+                                let _ = exportedVideoData.swap(data)
                                 let resource: TelegramMediaResource
                                 if let liveUploadData = result.liveUploadData as? LegacyLiveUploadInterfaceResult {
                                     resource = LocalFileMediaResource(fileId: liveUploadData.id)
@@ -1305,6 +1346,7 @@ extension PeerInfoScreenImpl {
             
             if case .complete = result {
                 dismissStatus?()
+                ggMirrorNativeAvatarUpload(peerId: peerId, mode: mode, prepared: preparedPhoto, videoData: exportedVideoData.with { $0 })
                 
                 let _ = (strongSelf.context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: strongSelf.avatarPeerId))
                 |> deliverOnMainQueue).startStandalone(next: { [weak self] peer in

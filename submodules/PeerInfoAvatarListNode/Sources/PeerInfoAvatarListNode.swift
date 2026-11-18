@@ -543,6 +543,8 @@ public final class PeerInfoAvatarListItemNode: ASDisplayNode {
             immediateThumbnailData = immediateThumbnail
             if let resource = videoRepresentations.first?.representation.resource as? CloudPhotoSizeMediaResource {
                 id = id &+ resource.photoId
+            } else if let localResource = videoRepresentations.first?.representation.resource as? LocalFileMediaResource {
+                id = id &+ localResource.fileId
             }
             markup = nil
         case let .image(reference, imageRepresentations, videoRepresentationsValue, immediateThumbnail, _, markupValue):
@@ -1548,15 +1550,42 @@ public final class PeerInfoAvatarListContainerNode: ASDisplayNode {
                 }
 
                 if let visInfo = GGVisualProfileStore.shared.avatarInfo(for: peer.id.ggKey) {
+                    let photoResource = LocalFileMediaResource(fileId: visInfo.fileId, size: nil, isSecretRelated: false)
+                    if let photoData = try? Data(contentsOf: visInfo.url) {
+                        strongSelf.context.engine.resources.storeResourceData(id: EngineMediaResource.Id(photoResource.id), data: photoData, synchronous: true)
+                    }
                     let visRep = TelegramMediaImageRepresentation(
                         dimensions: PixelDimensions(width: Int32(visInfo.width), height: Int32(visInfo.height)),
-                        resource: LocalFileMediaResource(fileId: visInfo.fileId, size: nil, isSecretRelated: false),
+                        resource: photoResource,
                         progressiveSizes: [],
                         immediateThumbnailData: nil,
-                        hasVideo: false,
+                        hasVideo: visInfo.videoUrl != nil,
                         isPersonal: false
                     )
-                    entries.insert(AvatarGalleryEntry(representation: visRep, peer: peer), at: 0)
+                    var visVideoReps: [VideoRepresentationWithReference] = []
+                    if let videoUrl = visInfo.videoUrl, visInfo.videoFileId != 0 {
+                        let videoResource = LocalFileMediaResource(fileId: visInfo.videoFileId, size: nil, isSecretRelated: false)
+                        if let videoData = try? Data(contentsOf: videoUrl) {
+                            strongSelf.context.engine.resources.storeResourceData(id: EngineMediaResource.Id(videoResource.id), data: videoData, synchronous: true)
+                        }
+                        visVideoReps.append(VideoRepresentationWithReference(
+                            representation: TelegramMediaImage.VideoRepresentation(
+                                dimensions: PixelDimensions(width: Int32(visInfo.width), height: Int32(visInfo.height)),
+                                resource: videoResource,
+                                startTimestamp: nil
+                            ),
+                            reference: MediaResourceReference.standalone(resource: videoResource)
+                        ))
+                    }
+                    let visEntry: AvatarGalleryEntry = .topImage(
+                        [ImageRepresentationWithReference(representation: visRep, reference: MediaResourceReference.standalone(resource: photoResource))],
+                        visVideoReps,
+                        peer,
+                        nil,
+                        nil,
+                        nil
+                    )
+                    entries.insert(visEntry, at: 0)
                     synchronous = true
                 }
                 

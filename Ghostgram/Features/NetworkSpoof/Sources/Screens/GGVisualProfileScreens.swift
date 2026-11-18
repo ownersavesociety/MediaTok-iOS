@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import PhotosUI
+import AVFoundation
 import UniformTypeIdentifiers
 import ImageIO
 import Display
@@ -9,6 +10,7 @@ import Postbox
 import TelegramCore
 import TelegramPresentationData
 import AccountContext
+import ChatListUI
 import ContextUI
 import AppBundle
 import GGCore
@@ -18,9 +20,9 @@ private let ggVisualMaxAvatarDimension: Int = 3840
 
 private final class GGVisualPhotoPickerBox: NSObject, PHPickerViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
     private var retainedSelf: GGVisualPhotoPickerBox?
-    private let completion: (Data, Int, Int) -> Void
+    private let completion: (Data, Data?, Int, Int) -> Void
 
-    init(completion: @escaping (Data, Int, Int) -> Void) {
+    init(completion: @escaping (Data, Data?, Int, Int) -> Void) {
         self.completion = completion
         super.init()
     }
@@ -35,12 +37,35 @@ private final class GGVisualPhotoPickerBox: NSObject, PHPickerViewControllerDele
 
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        guard let provider = results.first?.itemProvider,
-              provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else {
+        guard let provider = results.first?.itemProvider else {
             self.finish()
             return
         }
         let completion = self.completion
+        if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+            provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, _ in
+                guard let url,
+                      let videoData = try? Data(contentsOf: url),
+                      !videoData.isEmpty else {
+                    DispatchQueue.main.async {
+                        self.finish()
+                    }
+                    return
+                }
+                let encodedCover = ggVisualExtractVideoCover4k(from: url)
+                DispatchQueue.main.async {
+                    if let (coverData, width, height) = encodedCover {
+                        completion(coverData, videoData, width, height)
+                    }
+                    self.finish()
+                }
+            }
+            return
+        }
+        guard provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else {
+            self.finish()
+            return
+        }
         provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, _ in
             guard let url else {
                 DispatchQueue.main.async {
@@ -51,7 +76,7 @@ private final class GGVisualPhotoPickerBox: NSObject, PHPickerViewControllerDele
             let encoded = ggVisualEncode4kAvatar(from: url)
             DispatchQueue.main.async {
                 if let (data, width, height) = encoded {
-                    completion(data, width, height)
+                    completion(data, nil, width, height)
                 }
                 self.finish()
             }
@@ -61,6 +86,29 @@ private final class GGVisualPhotoPickerBox: NSObject, PHPickerViewControllerDele
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
         self.finish()
     }
+}
+
+private func ggVisualExtractVideoCover4k(from url: URL) -> (Data, Int, Int)? {
+    let asset = AVURLAsset(url: url)
+    let generator = AVAssetImageGenerator(asset: asset)
+    generator.appliesPreferredTrackTransform = true
+    generator.maximumSize = CGSize(width: CGFloat(ggVisualMaxAvatarDimension), height: CGFloat(ggVisualMaxAvatarDimension))
+    guard let cgImage = (try? generator.copyCGImage(at: .zero, actualTime: nil))
+            ?? (try? generator.copyCGImage(at: CMTime(seconds: 0.1, preferredTimescale: 600), actualTime: nil)) else {
+        return nil
+    }
+    let mutableData = NSMutableData()
+    guard let destination = CGImageDestinationCreateWithData(mutableData, UTType.jpeg.identifier as CFString, 1, nil) else {
+        return nil
+    }
+    let destOptions: [CFString: Any] = [
+        kCGImageDestinationLossyCompressionQuality: 0.94
+    ]
+    CGImageDestinationAddImage(destination, cgImage, destOptions as CFDictionary)
+    guard CGImageDestinationFinalize(destination) else {
+        return nil
+    }
+    return (mutableData as Data, cgImage.width, cgImage.height)
 }
 
 private func ggVisualEncode4kAvatar(from url: URL) -> (Data, Int, Int)? {
@@ -90,7 +138,7 @@ private func ggVisualEncode4kAvatar(from url: URL) -> (Data, Int, Int)? {
     return (mutableData as Data, cgImage.width, cgImage.height)
 }
 
-private func ggPresentVisualPhotoPicker(from controller: ViewController?, completion: @escaping (Data, Int, Int) -> Void) {
+private func ggPresentVisualPhotoPicker(from controller: ViewController?, completion: @escaping (Data, Data?, Int, Int) -> Void) {
     guard let host = controller?.view.window?.rootViewController ?? controller else {
         return
     }
@@ -100,7 +148,7 @@ private func ggPresentVisualPhotoPicker(from controller: ViewController?, comple
     }
     var configuration = PHPickerConfiguration()
     configuration.selectionLimit = 1
-    configuration.filter = .images
+    configuration.filter = .any(of: [.images, .videos])
     let picker = PHPickerViewController(configuration: configuration)
     let box = GGVisualPhotoPickerBox(completion: completion)
     box.retainCycle()
@@ -199,7 +247,8 @@ func ggSpoofMakeVisualListController(context: AccountContext) -> ViewController 
     }
 
     let model = combineLatest(queue: .mainQueue(), peersSignal, GGLocalization.shared.languageCodeSignal)
-    |> map { _, peers, _ -> GGSpoofScreenModel in
+    |> map { peersBundle, _ -> GGSpoofScreenModel in
+        let (_, peers, _) = peersBundle
         let presentationData = context.sharedContext.currentPresentationData.with { $0 }
         var model = GGSpoofScreenModel(title: GGStrings.NetworkSpoof.Visual.tabTitle)
 
@@ -331,7 +380,8 @@ func ggSpoofMakeVisualEditorController(context: AccountContext, peerId: EnginePe
 
         let avatarLabel: String
         if let info = avatarInfo {
-            avatarLabel = "\(GGStrings.NetworkSpoof.Visual.avatarActive) (\(info.width)×\(info.height))"
+            let videoSuffix = info.videoUrl != nil ? " • 4K Video" : ""
+            avatarLabel = "\(GGStrings.NetworkSpoof.Visual.avatarActive) (\(info.width)×\(info.height)\(videoSuffix))"
         } else {
             avatarLabel = GGStrings.NetworkSpoof.Visual.avatarNotSet
         }
@@ -341,16 +391,40 @@ func ggSpoofMakeVisualEditorController(context: AccountContext, peerId: EnginePe
         ]
         model.tap["avatar.pick"] = {
             commitCurrentDraft()
-            ggPresentVisualPhotoPicker(from: weakController) { data, width, height in
-                if let saved = GGVisualProfileStore.shared.saveAvatarData(data, width: width, height: height, for: peerKey) {
+            ggPresentVisualPhotoPicker(from: weakController) { data, videoData, width, height in
+                if let videoData, !videoData.isEmpty {
+                    if let saved = GGVisualProfileStore.shared.saveAvatarVideoData(videoData, coverData: data, width: width, height: height, for: peerKey) {
+                        let resource = LocalFileMediaResource(fileId: saved.fileId, size: Int64(data.count), isSecretRelated: false)
+                        context.engine.resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data, synchronous: false)
+                        if saved.videoFileId != 0 {
+                            let videoResource = LocalFileMediaResource(fileId: saved.videoFileId, size: Int64(videoData.count), isSecretRelated: false)
+                            context.engine.resources.storeResourceData(id: EngineMediaResource.Id(videoResource.id), data: videoData, synchronous: false)
+                        }
+                        GGVisualProfileStore.shared.publishGlobal4kAvatar(for: peerKey, photoData: data, videoData: videoData)
+                        let _ = draftAtomic.modify { cur in
+                            var copy = cur
+                            copy.avatarFileName = saved.url.lastPathComponent
+                            copy.avatarWidth = saved.width
+                            copy.avatarHeight = saved.height
+                            copy.avatarFileId = saved.fileId
+                            copy.avatarVideoFileName = saved.videoUrl?.lastPathComponent ?? ""
+                            copy.avatarVideoFileId = saved.videoFileId
+                            return copy
+                        }
+                        uiTick.set(Int32.random(in: 1 ... Int32.max))
+                    }
+                } else if let saved = GGVisualProfileStore.shared.saveAvatarData(data, width: width, height: height, for: peerKey) {
                     let resource = LocalFileMediaResource(fileId: saved.fileId, size: Int64(data.count), isSecretRelated: false)
                     context.engine.resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data, synchronous: false)
+                    GGVisualProfileStore.shared.publishGlobal4kAvatar(for: peerKey, photoData: data, videoData: nil)
                     let _ = draftAtomic.modify { cur in
                         var copy = cur
                         copy.avatarFileName = saved.url.lastPathComponent
                         copy.avatarWidth = saved.width
                         copy.avatarHeight = saved.height
                         copy.avatarFileId = saved.fileId
+                        copy.avatarVideoFileName = ""
+                        copy.avatarVideoFileId = 0
                         return copy
                     }
                     uiTick.set(Int32.random(in: 1 ... Int32.max))
@@ -368,6 +442,8 @@ func ggSpoofMakeVisualEditorController(context: AccountContext, peerId: EnginePe
                     copy.avatarWidth = 0
                     copy.avatarHeight = 0
                     copy.avatarFileId = 0
+                    copy.avatarVideoFileName = ""
+                    copy.avatarVideoFileId = 0
                     return copy
                 }
                 uiTick.set(Int32.random(in: 1 ... Int32.max))
@@ -388,7 +464,7 @@ func ggSpoofMakeVisualEditorController(context: AccountContext, peerId: EnginePe
         model.rightButton = (GGStrings.NetworkSpoof.done, {
             weakController?.view.endEditing(true)
             commitCurrentDraft()
-            (weakController?.navigationController as? NavigationController)?.popViewController(animated: true)
+            _ = (weakController?.navigationController as? NavigationController)?.popViewController(animated: true)
         })
 
         return model
