@@ -500,7 +500,7 @@ private func ggBuildRootEntries(menuContext: GGMenuContext, state: GGMenuScreenS
             result.entries.append(GGMenuEntry(id: .link(link.id), key: GGMenuSortKey(section: 4, rank: 1, order: index, tie: ""), section: 4, payload: .navigation(title: ggMenuLinkTitle(link.id), subtitle: nil, label: link.username, icon: link.icon, enabled: true, destructive: false), menuContext: menuContext))
         }
     }
-    result.entries.append(GGMenuEntry(id: .sectionFooter("root.links"), key: GGMenuSortKey(section: footerSection, rank: 2, order: 0, tie: ""), section: footerSection, payload: .footer(GGStrings.Menu.Root.footer(version: ggAppVersionString())), menuContext: menuContext))
+    result.entries.append(GGMenuEntry(id: .sectionFooter("root.links"), key: GGMenuSortKey(section: footerSection, rank: 2, order: 0, tie: ""), section: ItemListSectionId(footerSection), payload: .footer(GGStrings.Menu.Root.footer(version: ggAppVersionString())), menuContext: menuContext))
 }
 
 private func ggBuildSectionEntries(screen: GGMenuScreenID, tab: GGMenuTabDescriptor?, menuContext: GGMenuContext, state: GGMenuScreenState, dynamicRows: [GGMenuSectionID: [GGMenuRow]], token: Int, result: inout GGMenuBuildResult) {
