@@ -190,10 +190,11 @@ class BazelCommandLine:
                 # Always build universal Watch binaries.
                 '--watchos_cpus=arm64_32',
 
-                '--features=swift.split_derived_files_generation',
+                '--features=swift.opt_uses_wmo',
+                '--features=swift.opt_uses_osize',
                 '--features=dead_strip',
                 '--objc_enable_binary_stripping',
-            ] + self.common_debug_args
+            ]
         else:
             raise Exception('Unknown configuration {}'.format(configuration))
 
