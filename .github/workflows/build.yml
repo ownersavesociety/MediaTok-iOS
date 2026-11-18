@@ -34,6 +34,21 @@ jobs:
           xcodebuild -version
           df -h
 
+      - name: Compute Bazel cache key
+        run: |
+          KEY_HASH=$(shasum -a 256 versions.json MODULE.bazel.lock 2>/dev/null | shasum -a 256 | awk '{print $1}' | cut -c1-16)
+          echo "BAZEL_CACHE_PREFIX=ios-bazel-disk-v1-${KEY_HASH}-" >> "$GITHUB_ENV"
+          echo "BAZEL_CACHE_KEY=ios-bazel-disk-v1-${KEY_HASH}-${GITHUB_RUN_ID}" >> "$GITHUB_ENV"
+
+      - name: Restore Bazel Disk Cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/bazel-disk-cache
+          key: ${{ env.BAZEL_CACHE_KEY }}
+          restore-keys: |
+            ${{ env.BAZEL_CACHE_PREFIX }}
+            ios-bazel-disk-v1-
+
       - name: Move source to canonical directory
         run: |
           set -euxo pipefail
@@ -89,9 +104,11 @@ jobs:
             rm -f "$TMP_PLIST"
           done
 
+          mkdir -p "$HOME/.cache/bazel-disk-cache"
           python3 -u build-system/Make/Make.py \
             --overrideXcodeVersion \
             --bazelUserRoot="$BAZEL_USER_ROOT" \
+            --cacheDir="$HOME/.cache/bazel-disk-cache" \
             build \
             --configurationPath="build-system/appstore-configuration.json" \
             --codesigningInformationPath=build-system/fake-codesigning \
@@ -123,3 +140,46 @@ jobs:
             --latest \
             --title "MediaTok iOS ${APP_VERSION} Ghost Edition (${BUILD_NUMBER})" \
             --notes "MediaTok iOS built on Ghostgram (Telegram iOS ${APP_VERSION}): Ghost Mode, Anti-Delete & Anti-Edit history, restriction bypass, chat passcode/Face ID, local spoofing, voice changer & transcription. Install via AltStore, SideStore, Sideloadly, ESign, Feather, LiveContainer, or TrollStore."
+
+      - name: Prune Bazel Disk Cache to < 7.5 GB
+        if: always()
+        continue-on-error: true
+        run: |
+          python3 - <<'PY'
+          import os
+          root = os.path.expanduser("~/.cache/bazel-disk-cache")
+          limit = int(7.5 * 1024 * 1024 * 1024)
+          if not os.path.isdir(root):
+              raise SystemExit(0)
+          files = []
+          total = 0
+          for dirpath, _, filenames in os.walk(root):
+              for fn in filenames:
+                  p = os.path.join(dirpath, fn)
+                  try:
+                      st = os.stat(p)
+                      files.append((st.st_atime, st.st_size, p))
+                      total += st.st_size
+                  except OSError:
+                      pass
+          print(f"Bazel disk cache before prune: {total / (1024**3):.2f} GB ({len(files)} files)")
+          if total > limit:
+              files.sort(key=lambda x: x[0])
+              for _, sz, p in files:
+                  if total <= limit:
+                      break
+                  try:
+                      os.remove(p)
+                      total -= sz
+                  except OSError:
+                      pass
+              print(f"Bazel disk cache after prune: {total / (1024**3):.2f} GB")
+          PY
+
+      - name: Save Bazel Disk Cache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/bazel-disk-cache
+          key: ${{ env.BAZEL_CACHE_KEY }}
