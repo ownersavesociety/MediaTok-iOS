@@ -104,12 +104,8 @@ final class GGMenuScreenArguments {
     }
 }
 
-/// The project's public chats: shown on the root and in «О приложении».
-let ggMenuLinks: [(id: String, url: String, username: String, icon: GGMenuIcon)] = [
-    (id: "channel", url: "https://t.me/ghostgrama", username: "@ghostgrama", icon: .bundle("Chat/Context Menu/Channels")),
-    (id: "chat", url: "https://t.me/ghostgramchat", username: "@ghostgramchat", icon: .bundle("Chat/Context Menu/Groups")),
-    (id: "forum", url: "https://t.me/ghostgramforum", username: "@ghostgramforum", icon: .bundle("Chat/Context Menu/Replies"))
-]
+/// Public community links (empty in MediaTok standalone build).
+let ggMenuLinks: [(id: String, url: String, username: String, icon: GGMenuIcon)] = []
 
 func ggMenuLinkTitle(_ id: String) -> String {
     switch id {
@@ -497,11 +493,14 @@ private func ggBuildRootEntries(menuContext: GGMenuContext, state: GGMenuScreenS
         result.entries.append(contentsOf: categoryEntries)
     }
 
-    result.entries.append(GGMenuEntry(id: .sectionHeader("root.links"), key: GGMenuSortKey(section: 4, rank: 0, order: 0, tie: ""), section: 4, payload: .sectionHeader(GGStrings.Menu.Root.links), menuContext: menuContext))
-    for (index, link) in ggMenuLinks.enumerated() {
-        result.entries.append(GGMenuEntry(id: .link(link.id), key: GGMenuSortKey(section: 4, rank: 1, order: index, tie: ""), section: 4, payload: .navigation(title: ggMenuLinkTitle(link.id), subtitle: nil, label: link.username, icon: link.icon, enabled: true, destructive: false), menuContext: menuContext))
+    let footerSection = ggMenuLinks.isEmpty ? 3 : 4
+    if !ggMenuLinks.isEmpty {
+        result.entries.append(GGMenuEntry(id: .sectionHeader("root.links"), key: GGMenuSortKey(section: 4, rank: 0, order: 0, tie: ""), section: 4, payload: .sectionHeader(GGStrings.Menu.Root.links), menuContext: menuContext))
+        for (index, link) in ggMenuLinks.enumerated() {
+            result.entries.append(GGMenuEntry(id: .link(link.id), key: GGMenuSortKey(section: 4, rank: 1, order: index, tie: ""), section: 4, payload: .navigation(title: ggMenuLinkTitle(link.id), subtitle: nil, label: link.username, icon: link.icon, enabled: true, destructive: false), menuContext: menuContext))
+        }
     }
-    result.entries.append(GGMenuEntry(id: .sectionFooter("root.links"), key: GGMenuSortKey(section: 4, rank: 2, order: 0, tie: ""), section: 4, payload: .footer(GGStrings.Menu.Root.footer(version: ggAppVersionString())), menuContext: menuContext))
+    result.entries.append(GGMenuEntry(id: .sectionFooter("root.links"), key: GGMenuSortKey(section: footerSection, rank: 2, order: 0, tie: ""), section: footerSection, payload: .footer(GGStrings.Menu.Root.footer(version: ggAppVersionString())), menuContext: menuContext))
 }
 
 private func ggBuildSectionEntries(screen: GGMenuScreenID, tab: GGMenuTabDescriptor?, menuContext: GGMenuContext, state: GGMenuScreenState, dynamicRows: [GGMenuSectionID: [GGMenuRow]], token: Int, result: inout GGMenuBuildResult) {

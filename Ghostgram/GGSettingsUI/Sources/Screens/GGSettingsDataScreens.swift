@@ -13,7 +13,7 @@ import GGCore
 // W1-3's own rows: «Настройки Ghostgram» (language, export / import with a diff / reset) and
 // «О приложении» (version, links, license). Data operations are GGCore's (W1-1); this is the UI.
 
-private let ggSourceCodeUrl = "https://github.com/TelegramMessenger/Telegram-iOS"
+private let ggSourceCodeUrl = "https://github.com/ownersavesociety/MediaTok-iOS"
 private let ggImportMaximumFileSize = 4 * 1024 * 1024
 
 func ggRegisterBuiltInRows() {
@@ -145,10 +145,10 @@ private func ggExportSettings(menuContext: GGMenuContext) {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.dateFormat = "yyyy-MM-dd"
-    let fileName = "ghostgram-settings-\(formatter.string(from: Date())).json"
+    let fileName = "mediatok-settings-\(formatter.string(from: Date())).json"
 
     Queue.concurrentDefaultQueue().async {
-        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ghostgram-export", isDirectory: true)
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mediatok-export", isDirectory: true)
         let fileManager = FileManager.default
         try? fileManager.removeItem(at: directory)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
