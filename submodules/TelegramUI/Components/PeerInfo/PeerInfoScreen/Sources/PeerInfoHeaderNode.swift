@@ -28,6 +28,7 @@ import MultiAnimationRenderer
 import ComponentDisplayAdapters
 import ChatTitleView
 import AppBundle
+import GGCore
 import AvatarVideoNode
 import PeerInfoVisualMediaPaneNode
 import AvatarStoryIndicatorComponent
@@ -471,7 +472,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
     }
     
     func initiateAvatarExpansion(gallery: Bool, first: Bool) {
-        if let peer = self.peer, peer.profileImageRepresentations.isEmpty && gallery {
+        if let peer = self.peer, peer.profileImageRepresentations.isEmpty && !GGVisualProfileStore.shared.hasAvatar(for: peer.id.ggKey) && gallery {
             self.requestOpenAvatarForEditing?(false)
             return
         }
@@ -664,24 +665,33 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         var verifiedIcon: CredibilityIcon = .none
         var statusIcon: CredibilityIcon = .none
         if let peer {
+            let resolvedBadges = GGVisualProfileStore.shared.resolveBadges(
+                for: peer.id.ggKey,
+                isVerified: peer.isVerified,
+                isPremium: peer.isPremium,
+                isScam: peer.isScam,
+                isFake: peer.isFake
+            )
             if peer.id == self.context.account.peerId && !self.isSettings && !self.isMyProfile {
                 credibilityIcon = .none
-            } else if peer.isFake {
+            } else if resolvedBadges.fake {
                 credibilityIcon = .fake
-            } else if peer.isScam {
+            } else if resolvedBadges.scam {
                 credibilityIcon = .scam
-            } else if let emojiStatus = peer.emojiStatus {
+            } else if resolvedBadges.allowEmojiStatus, let emojiStatus = peer.emojiStatus {
                 statusIcon = .emojiStatus(emojiStatus)
-            } else if peer.isPremium && !premiumConfiguration.isPremiumDisabled && (peer.id != self.context.account.peerId || self.isSettings || self.isMyProfile) {
+            } else if resolvedBadges.premium && !premiumConfiguration.isPremiumDisabled && (peer.id != self.context.account.peerId || self.isSettings || self.isMyProfile || GGVisualProfileStore.shared.badgeMode(for: peer.id.ggKey) == .premium) {
                 credibilityIcon = .premium
             } else {
                 credibilityIcon = .none
             }
-            if peer.isVerified {
-                credibilityIcon = .verified
-            }
-            if let verificationIconFileId = peer.verificationIconFileId {
-                verifiedIcon = .emojiStatus(PeerEmojiStatus(content: .emoji(fileId: verificationIconFileId), expirationDate: nil))
+            if !(peer.id == self.context.account.peerId && !self.isSettings && !self.isMyProfile) {
+                if resolvedBadges.verified {
+                    credibilityIcon = .verified
+                }
+                if resolvedBadges.allowEmojiStatus, let verificationIconFileId = peer.verificationIconFileId {
+                    verifiedIcon = .emojiStatus(PeerEmojiStatus(content: .emoji(fileId: verificationIconFileId), expirationDate: nil))
+                }
             }
         }
         
@@ -1228,9 +1238,16 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         var panelSubtitleString: (text: String, attributes: MultiScaleTextState.Attributes)?
         let usernameString: (text: String, attributes: MultiScaleTextState.Attributes)
         if let peer = peer {
-            isPremium = peer.isPremium
-            isVerified = peer.isVerified
-            isFake = peer.isFake || peer.isScam
+            let resolvedBadges = GGVisualProfileStore.shared.resolveBadges(
+                for: peer.id.ggKey,
+                isVerified: peer.isVerified,
+                isPremium: peer.isPremium,
+                isScam: peer.isScam,
+                isFake: peer.isFake
+            )
+            isPremium = resolvedBadges.premium
+            isVerified = resolvedBadges.verified
+            isFake = resolvedBadges.fake || resolvedBadges.scam
         }
         
         let titleShadowColor: UIColor? = nil
@@ -1246,6 +1263,8 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                     displayStandardTitle = true
                     title = presentationData.strings.Conversation_SavedMessages
                 }
+            } else if let visName = GGVisualProfileStore.shared.name(for: peer.id.ggKey) {
+                title = visName
             } else if peer.id.isAnonymousSavedMessages {
                 title = presentationData.strings.ChatList_AuthorHidden
             } else if let threadData = threadData {
@@ -1261,7 +1280,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                 // GHOST: features may hide or replace the shown number (GGPeerInfoHooks.displayedPhoneNumber)
                 if case let .user(user) = peer, let phone = GGPeerInfoHooks.phone(user.phone, peerId: user.id, context: self.context) {
                     title = formatPhoneNumber(context: self.context, number: phone)
-                } else if let addressName = peer.addressName {
+                } else if let addressName = GGVisualProfileStore.shared.resolveMainUsername(for: peer.id.ggKey, realMain: peer.addressName) {
                     title = "@\(addressName)"
                 } else {
                     title = "_"
@@ -1276,7 +1295,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                 // GHOST: features may hide or replace the shown number (GGPeerInfoHooks.displayedPhoneNumber)
                 var subtitle = GGPeerInfoHooks.phone(user.phone, peerId: user.id, context: self.context).flatMap({ formatPhoneNumber(context: self.context, number: $0) }) ?? ""
                 
-                if let mainUsername = user.addressName, !mainUsername.isEmpty {
+                if let mainUsername = GGVisualProfileStore.shared.resolveMainUsername(for: user.id.ggKey, realMain: user.addressName), !mainUsername.isEmpty {
                     // GHOST: a hidden number leaves the username alone, without the « • » separator in front
                     subtitle = subtitle.isEmpty ? "@\(mainUsername)" : "\(subtitle) • @\(mainUsername)"
                 }

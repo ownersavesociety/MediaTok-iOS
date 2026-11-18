@@ -32,6 +32,7 @@ swift_library(
         "//submodules/LegacyMediaPickerUI:LegacyMediaPickerUI",
         "//submodules/SaveToCameraRoll:SaveToCameraRoll",
         "//submodules/UndoUI:UndoUI",
+        "//Ghostgram/GGCore:GGCore",
     ],
     visibility = [
         "//visibility:public",

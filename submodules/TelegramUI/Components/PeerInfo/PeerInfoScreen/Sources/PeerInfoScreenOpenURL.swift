@@ -9,6 +9,7 @@ import PresentationDataUtils
 import OverlayStatusController
 import HashtagSearchUI
 import UndoUI
+import GGCore
 
 extension PeerInfoScreenNode {
     func openResolved(_ result: ResolvedUrl) {
@@ -287,6 +288,17 @@ extension PeerInfoScreenNode {
         
         if let pathComponents = URL(string: url)?.pathComponents, pathComponents.count >= 2, !pathComponents[1].isEmpty {
             let namePart = pathComponents[1]
+            if GGVisualProfileStore.shared.isVisualOnlyUsername(namePart, for: self.peerId.ggKey) {
+                progress?.set(.single(false))
+                if isMainUsername {
+                    openShare(nil)
+                } else {
+                    UIPasteboard.general.string = "@\(namePart)"
+                    let presentationData = self.context.sharedContext.currentPresentationData.with { $0 }
+                    self.controller?.present(UndoOverlayController(presentationData: presentationData, content: .copy(text: presentationData.strings.Conversation_UsernameCopied), elevatedLayout: false, animateInAsReplacement: false, action: { _ in return false }), in: .current)
+                }
+                return
+            }
             progress?.set(.single(true))
             let _ = (self.context.sharedContext.makeCollectibleItemInfoScreenInitialData(context: self.context, peerId: self.peerId, subject: .username(namePart))
             |> deliverOnMainQueue).start(next: { [weak self] initialData in

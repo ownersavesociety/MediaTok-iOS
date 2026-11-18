@@ -185,7 +185,14 @@ public func peerAvatarImage(account: Account, peerReference: PeerReference?, aut
 }
     
 public func peerAvatarImage(postbox: Postbox, peerReference: PeerReference?, authorOfMessage: MessageReference?, representation: TelegramMediaImageRepresentation?, displayDimensions: CGSize = CGSize(width: 60.0, height: 60.0), clipStyle: AvatarNodeClipStyle = .round, blurred: Bool = false, inset: CGFloat = 0.0, emptyColor: UIColor? = nil, synchronousLoad: Bool = false, provideUnrounded: Bool = false, cutoutRect: CGRect? = nil) -> Signal<(UIImage, UIImage)?, NoError>? {
-    if let imageData = peerAvatarImageData(postbox: postbox, peerReference: peerReference, authorOfMessage: authorOfMessage, representation: representation, synchronousLoad: synchronousLoad) {
+    let resolvedDataSignal: Signal<(Data, PeerAvatarImageType)?, NoError>?
+    if let localResource = representation?.resource as? LocalFileMediaResource,
+       let localData = ggVisualAvatarThumbData(fileId: localResource.fileId, maxPixelSize: max(128, Int(max(displayDimensions.width, displayDimensions.height) * 3.0))) {
+        resolvedDataSignal = .single((localData, .complete))
+    } else {
+        resolvedDataSignal = peerAvatarImageData(postbox: postbox, peerReference: peerReference, authorOfMessage: authorOfMessage, representation: representation, synchronousLoad: synchronousLoad)
+    }
+    if let imageData = resolvedDataSignal {
         return imageData
         |> mapToSignal { data -> Signal<(UIImage, UIImage)?, NoError> in
             let generate = deferred { () -> Signal<(UIImage, UIImage)?, NoError> in

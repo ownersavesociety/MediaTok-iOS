@@ -12,6 +12,42 @@ import PhotoResources
 import GalleryUI
 import TelegramUniversalVideoContent
 import UndoUI
+import GGCore
+import ImageIO
+
+private func ggVisualGalleryAvatarSignal(path: String, maxPixelSize: Int) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+    return Signal { subscriber in
+        let url = URL(fileURLWithPath: path)
+        var decodedCGImage: CGImage?
+        if let source = CGImageSourceCreateWithURL(url as CFURL, nil) {
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: max(512, maxPixelSize)
+            ]
+            decodedCGImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        }
+        subscriber.putNext({ arguments in
+            guard let context = DrawingContext(size: arguments.drawingSize, clear: true) else {
+                return nil
+            }
+            context.withFlippedContext { c in
+                c.setBlendMode(.copy)
+                c.setFillColor(UIColor.black.cgColor)
+                c.fill(arguments.drawingRect)
+                if let cgImage = decodedCGImage {
+                    c.interpolationQuality = .high
+                    c.draw(cgImage, in: arguments.drawingRect)
+                }
+            }
+            return context
+        })
+        subscriber.putCompletion()
+        return EmptyDisposable
+    }
+    |> runOn(Queue.concurrentDefaultQueue())
+}
 
 private struct PeerAvatarImageGalleryThumbnailItem: GalleryThumbnailItem {
     let account: Account
@@ -244,6 +280,11 @@ final class PeerAvatarImageGalleryItemNode: ZoomableContentGalleryItemNode {
                     subject = .media(videoFileReference.abstract, nil)
                     actionCompletionText = strongSelf.presentationData.strings.Gallery_VideoSaved
                 } else {
+                    if let localResource = entry.representations.last?.representation.resource as? LocalFileMediaResource,
+                       let visPath = GGVisualProfileStore.shared.avatarPath(matchingFileId: localResource.fileId),
+                       let data = try? Data(contentsOf: URL(fileURLWithPath: visPath)) {
+                        strongSelf.context.engine.resources.storeResourceData(id: EngineMediaResource.Id(localResource.id), data: data, synchronous: true)
+                    }
                     subject = .image(entry.representations)
                     actionCompletionText = strongSelf.presentationData.strings.Gallery_ImageSaved
                 }
@@ -335,12 +376,19 @@ final class PeerAvatarImageGalleryItemNode: ZoomableContentGalleryItemNode {
             self.footerContentNode.setEntry(entry, content: footerContent)
             
             if let largestSize = largestImageRepresentation(entry.representations.map({ $0.representation })) {
-                let displaySize = largestSize.dimensions.cgSize.fitted(CGSize(width: 1280.0, height: 1280.0)).dividedByScreenScale().integralFloor
+                let localResource = entry.representations.last?.representation.resource as? LocalFileMediaResource
+                let localVisualPath = localResource.flatMap { GGVisualProfileStore.shared.avatarPath(matchingFileId: $0.fileId) }
+                let capDimension: CGFloat = localVisualPath != nil ? 3840.0 : 1280.0
+                let displaySize = largestSize.dimensions.cgSize.fitted(CGSize(width: capDimension, height: capDimension)).dividedByScreenScale().integralFloor
                 self.imageNode.asyncLayout()(TransformImageArguments(corners: ImageCorners(), imageSize: displaySize, boundingSize: displaySize, intrinsicInsets: UIEdgeInsets()))()
                 let representations = entry.representations
                 if representations.last != previousRepresentations?.last {
-                    self.imageNode.setSignal(chatAvatarGalleryPhoto(account: self.context.account, representations: representations, immediateThumbnailData: entry.immediateThumbnailData, attemptSynchronously: synchronous), attemptSynchronously: synchronous, dispatchOnDisplayLink: false)
-                    if entry.videoRepresentations.isEmpty {
+                    if let localVisualPath {
+                        self.imageNode.setSignal(ggVisualGalleryAvatarSignal(path: localVisualPath, maxPixelSize: 3840), attemptSynchronously: synchronous, dispatchOnDisplayLink: false)
+                    } else {
+                        self.imageNode.setSignal(chatAvatarGalleryPhoto(account: self.context.account, representations: representations, immediateThumbnailData: entry.immediateThumbnailData, attemptSynchronously: synchronous), attemptSynchronously: synchronous, dispatchOnDisplayLink: false)
+                    }
+                    if entry.videoRepresentations.isEmpty || localVisualPath != nil {
                         self.imageNode.imageUpdated = { [weak self] _ in
                             self?._ready.set(.single(Void()))
                         }
@@ -349,7 +397,7 @@ final class PeerAvatarImageGalleryItemNode: ZoomableContentGalleryItemNode {
                 
                 self.zoomableContent = (largestSize.dimensions.cgSize, self.contentNode)
 
-                if let largestIndex = representations.firstIndex(where: { $0.representation == largestSize }) {
+                if localVisualPath == nil, let largestIndex = representations.firstIndex(where: { $0.representation == largestSize }) {
                     self.fetchDisposable.set(self.context.engine.resources.fetch(reference: representations[largestIndex].reference, userLocation: .other, userContentType: .image).start())
                 }
                 

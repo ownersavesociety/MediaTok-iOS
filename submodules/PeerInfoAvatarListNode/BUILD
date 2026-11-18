@@ -29,6 +29,7 @@ swift_library(
         "//submodules/Components/ComponentDisplayAdapters",
         "//submodules/TelegramUI/Components/Stories/StorySetIndicatorComponent",
         "//submodules/Components/HierarchyTrackingLayer",
+        "//Ghostgram/GGCore:GGCore",
     ],
     visibility = [
         "//visibility:public",

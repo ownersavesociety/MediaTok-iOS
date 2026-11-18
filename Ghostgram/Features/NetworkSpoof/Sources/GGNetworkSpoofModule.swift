@@ -53,10 +53,32 @@ public enum GGNetworkSpoofModule {
         }, order: 0)
 
         GGNetworkSpoofModule.registerMenu()
+        GGVisualProfileSupport.registerHooks()
         GGNetworkSpoofMigrations.register()
     }
 
+    private static let visualTab = GGMenuTabID("networkSpoof.visual")
+
     private static func registerMenu() {
+        GGMenuRegistry.register(
+            tab: GGMenuTabDescriptor(
+                id: GGNetworkSpoofModule.visualTab,
+                parent: .tab(.privacySpoofing),
+                title: { GGStrings.NetworkSpoof.Visual.tabTitle },
+                makeScreen: { context in
+                    return ggSpoofMakeVisualListController(context: context.context)
+                },
+                searchKeywords: { [GGStrings.NetworkSpoof.Visual.tabKeywords] }
+            ),
+            linkIn: .main(of: .privacySpoofing),
+            order: 100,
+            subtitle: { GGStrings.NetworkSpoof.Visual.tabInfo },
+            icon: .bundle("Chat/Context Menu/Edit"),
+            label: { _ in
+                let count = GGVisualProfileStore.shared.allOverrides().count
+                return count > 0 ? "\(count)" : GGStrings.NetworkSpoof.Menu.off
+            }
+        )
         GGMenuRegistry.register(
             tab: GGMenuTabDescriptor(
                 id: GGNetworkSpoofModule.phoneTab,

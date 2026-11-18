@@ -9617,6 +9617,148 @@ public enum GGStrings {
                 return GGLocalization.shared.string("networkSpoof.profiles.unknownPeer")
             }
         }
+
+        public enum Visual {
+            /// Also @user2, @user3 (comma or space)
+            public static var alsoUsernamesPlaceholder: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.alsoUsernamesPlaceholder")
+            }
+
+            /// Custom 4K active
+            public static var avatarActive: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.avatarActive")
+            }
+
+            /// Local 4K avatar (up to 3840px)
+            public static var avatarHeader: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.avatarHeader")
+            }
+
+            /// Original
+            public static var avatarNotSet: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.avatarNotSet")
+            }
+
+            /// Choose photo from gallery
+            public static var avatarPick: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.avatarPick")
+            }
+
+            /// Remove 4K avatar
+            public static var avatarRemove: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.avatarRemove")
+            }
+
+            /// Default (Telegram)
+            public static var badgeDefault: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.badgeDefault")
+            }
+
+            /// FAKE
+            public static var badgeFake: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.badgeFake")
+            }
+
+            /// Badge
+            public static var badgeHeader: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.badgeHeader")
+            }
+
+            /// Hide badges
+            public static var badgeHide: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.badgeHide")
+            }
+
+            /// Telegram Premium
+            public static var badgePremium: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.badgePremium")
+            }
+
+            /// SCAM
+            public static var badgeScam: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.badgeScam")
+            }
+
+            /// Verified checkmark
+            public static var badgeVerified: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.badgeVerified")
+            }
+
+            /// Visual bio / description
+            public static var bioPlaceholder: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.bioPlaceholder")
+            }
+
+            /// My profile (visual & 4K avatar)
+            public static var editSelf: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.editSelf")
+            }
+
+            /// Visual profile
+            public static var editorTitle: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.editorTitle")
+            }
+
+            /// Profile details
+            public static var fieldsHeader: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.fieldsHeader")
+            }
+
+            /// Only on this device: overrides name, main @username, additional usernames, bio, phone, verified/premium badge and up to 4K (3840px) avatar.
+            public static var listFooter: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.listFooter")
+            }
+
+            /// Customized profiles
+            public static var listHeader: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.listHeader")
+            }
+
+            /// Main @username
+            public static var mainUsernamePlaceholder: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.mainUsernamePlaceholder")
+            }
+
+            /// Visual & 4K avatar
+            public static var menuItem: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.menuItem")
+            }
+
+            /// Visual name (empty = original)
+            public static var namePlaceholder: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.namePlaceholder")
+            }
+
+            /// Visual phone (+...)
+            public static var phonePlaceholder: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.phonePlaceholder")
+            }
+
+            /// Choose chat, user, bot or channel
+            public static var pickPeer: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.pickPeer")
+            }
+
+            /// Reset visual profile
+            public static var resetAll: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.resetAll")
+            }
+
+            /// Name, @usernames, bio, badges and 4K avatars
+            public static var tabInfo: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.tabInfo")
+            }
+
+            /// visual, username, badge, verified, avatar, 4k
+            public static var tabKeywords: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.tabKeywords")
+            }
+
+            /// Visual profile & 4K
+            public static var tabTitle: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.tabTitle")
+            }
+        }
     }
 
     public enum NickBadge {

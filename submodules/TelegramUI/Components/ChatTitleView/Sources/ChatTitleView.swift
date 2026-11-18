@@ -22,6 +22,7 @@ import MultiAnimationRenderer
 import ComponentDisplayAdapters
 import GlassBackgroundComponent
 import AnimatedTextComponent
+import GGCore
 
 private let titleFont = Font.with(size: 17.0, design: .regular, weight: .semibold, traits: [.monospacedNumbers])
 private let subtitleFont = Font.regular(13.0)
@@ -296,7 +297,9 @@ public final class ChatTitleView: UIView, NavigationBarTitleView {
                                 } else if peerView.peerId.isAnonymousSavedMessages {
                                     segments = [.text(0, NSAttributedString(string: self.strings.ChatList_AuthorHidden, font: titleFont, textColor: titleTheme.rootController.navigationBar.primaryTextColor))]
                                 } else {
-                                    if !peerView.isContact, let user = peer as? TelegramUser, !user.flags.contains(.isSupport), user.botInfo == nil, let phone = user.phone, !phone.isEmpty {
+                                    if let visName = GGVisualProfileStore.shared.name(for: peer.id.ggKey) {
+                                        segments = [.text(0, NSAttributedString(string: visName, font: titleFont, textColor: titleTheme.rootController.navigationBar.primaryTextColor))]
+                                    } else if !peerView.isContact, let user = peer as? TelegramUser, !user.flags.contains(.isSupport), user.botInfo == nil, let phone = user.phone, !phone.isEmpty {
                                         segments = [.text(0, NSAttributedString(string: formatPhoneNumber(context: self.context, number: phone), font: titleFont, textColor: titleTheme.rootController.navigationBar.primaryTextColor))]
                                     } else {
                                         segments = [.text(0, NSAttributedString(string: EnginePeer(peer).displayTitle(strings: self.strings, displayOrder: self.nameDisplayOrder), font: titleFont, textColor: titleTheme.rootController.navigationBar.primaryTextColor))]
@@ -304,20 +307,27 @@ public final class ChatTitleView: UIView, NavigationBarTitleView {
                                 }
                                 if peer.id != self.context.account.peerId {
                                     let premiumConfiguration = PremiumConfiguration.with(appConfiguration: self.context.currentAppConfiguration.with { $0 })
-                                    if peer.isFake {
+                                    let resolvedBadges = GGVisualProfileStore.shared.resolveBadges(
+                                        for: peer.id.ggKey,
+                                        isVerified: peer.isVerified,
+                                        isPremium: peer.isPremium,
+                                        isScam: peer.isScam,
+                                        isFake: peer.isFake
+                                    )
+                                    if resolvedBadges.fake {
                                         titleCredibilityIcon = .fake
-                                    } else if peer.isScam {
+                                    } else if resolvedBadges.scam {
                                         titleCredibilityIcon = .scam
-                                    } else if !hidePeerStatus, let emojiStatus = peer.emojiStatus {
+                                    } else if resolvedBadges.allowEmojiStatus, !hidePeerStatus, let emojiStatus = peer.emojiStatus {
                                         titleStatusIcon = .emojiStatus(emojiStatus)
-                                    } else if peer.isPremium && !premiumConfiguration.isPremiumDisabled {
+                                    } else if resolvedBadges.premium && !premiumConfiguration.isPremiumDisabled {
                                         titleCredibilityIcon = .premium
                                     }
                                     
-                                    if peer.isVerified {
+                                    if resolvedBadges.verified {
                                         titleCredibilityIcon = .verified
                                     }
-                                    if let verificationIconFileId = peer.verificationIconFileId {
+                                    if resolvedBadges.allowEmojiStatus, let verificationIconFileId = peer.verificationIconFileId {
                                         titleVerifiedIcon = .emojiStatus(PeerEmojiStatus(content: .emoji(fileId: verificationIconFileId), expirationDate: nil))
                                     }
                                 }
@@ -683,7 +693,8 @@ public final class ChatTitleView: UIView, NavigationBarTitleView {
                                     }
                                 } else if let channel = peer as? TelegramChannel {
                                     if channel.isForumOrMonoForum, customTitle != nil {
-                                        let string = NSAttributedString(string: EnginePeer(peer).displayTitle(strings: self.strings, displayOrder: self.nameDisplayOrder), font: subtitleFont, textColor: titleTheme.rootController.navigationBar.secondaryTextColor)
+                                        let resolvedForumTitle = GGVisualProfileStore.shared.name(for: peer.id.ggKey) ?? EnginePeer(peer).displayTitle(strings: self.strings, displayOrder: self.nameDisplayOrder)
+                                        let string = NSAttributedString(string: resolvedForumTitle, font: subtitleFont, textColor: titleTheme.rootController.navigationBar.secondaryTextColor)
                                         state = .info(string, .generic)
                                     } else if let cachedChannelData = peerView.cachedData as? CachedChannelData, let memberCount = onlineMemberCount.total ?? cachedChannelData.participantsSummary.memberCount {
                                         if memberCount == 0 {

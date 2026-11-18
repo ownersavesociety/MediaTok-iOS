@@ -35,6 +35,7 @@ swift_library(
         "//submodules/TelegramUI/Components/AnimatedTextComponent",
         # GHOST: the nick badge slot next to the name (W4-1)
         "//Ghostgram/Features/ProfileExport:GGNickBadgeSlot",
+        "//Ghostgram/GGCore:GGCore",
     ],
     visibility = [
         "//visibility:public",

@@ -24,6 +24,8 @@ swift_library(
         "//submodules/TelegramPresentationData:TelegramPresentationData",
         "//submodules/Display:Display",
         "//submodules/AsyncDisplayKit:AsyncDisplayKit",
+        "//submodules/ContextUI:ContextUI",
+        "//submodules/AppBundle:AppBundle",
         # Screens: lists, inputs, alerts.
         "//submodules/ItemListUI:ItemListUI",
         "//submodules/PresentationDataUtils:PresentationDataUtils",

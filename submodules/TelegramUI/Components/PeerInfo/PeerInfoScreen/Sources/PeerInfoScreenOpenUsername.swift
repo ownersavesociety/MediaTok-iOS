@@ -7,6 +7,7 @@ import TelegramCore
 import AsyncDisplayKit
 import ContextUI
 import UndoUI
+import GGCore
 
 extension PeerInfoScreenNode {
     func openUsernameContextMenu(node: ASDisplayNode, gesture: ContextGesture?) {
@@ -16,7 +17,7 @@ extension PeerInfoScreenNode {
         guard let peer = self.data?.peer else {
             return
         }
-        guard let username = peer.addressName else {
+        guard let username = GGVisualProfileStore.shared.resolveMainUsername(for: peer.id.ggKey, realMain: peer.addressName), !username.isEmpty else {
             return
         }
         

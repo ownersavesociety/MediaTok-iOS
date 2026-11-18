@@ -14,6 +14,42 @@ import Accelerate
 import ComponentFlow
 import AvatarStoryIndicatorComponent
 import DirectMediaImageCache
+import GGCore
+import ImageIO
+
+func ggVisualAvatarThumbData(fileId: Int64, maxPixelSize: Int) -> Data? {
+    guard let path = GGVisualProfileStore.shared.avatarPath(matchingFileId: fileId) else {
+        return nil
+    }
+    let url = URL(fileURLWithPath: path)
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+        return nil
+    }
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceShouldCacheImmediately: true,
+        kCGImageSourceThumbnailMaxPixelSize: max(64, maxPixelSize)
+    ]
+    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        return nil
+    }
+    return UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.92)
+}
+
+private func ggVisualAvatarCGImage(path: String, maxPixelSize: Int) -> CGImage? {
+    let url = URL(fileURLWithPath: path)
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+        return nil
+    }
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceShouldCacheImmediately: true,
+        kCGImageSourceThumbnailMaxPixelSize: max(64, maxPixelSize)
+    ]
+    return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+}
 
 private let deletedIcon = UIImage(bundleImageName: "Avatar/DeletedIcon")?.precomposed()
 private let phoneIcon = generateTintedImage(image: UIImage(bundleImageName: "Avatar/PhoneIcon"), color: .white)
@@ -642,6 +678,16 @@ public final class AvatarNode: ASDisplayNode {
                     representation = nil
                     icon = .storyIcon
                 }
+            } else if let peer = peer, let visInfo = GGVisualProfileStore.shared.avatarInfo(for: peer.id.ggKey) {
+                representation = TelegramMediaImageRepresentation(
+                    dimensions: PixelDimensions(width: Int32(visInfo.width), height: Int32(visInfo.height)),
+                    resource: LocalFileMediaResource(fileId: visInfo.fileId, size: nil, isSecretRelated: false),
+                    progressiveSizes: [],
+                    immediateThumbnailData: nil,
+                    hasVideo: false,
+                    isPersonal: false
+                )
+                synchronousLoad = true
             } else if peer?.restrictionText(platform: "ios", contentSettings: contentSettings) == nil {
                 representation = peer?.smallProfileImage
             }
@@ -727,10 +773,17 @@ public final class AvatarNode: ASDisplayNode {
             storeUnrounded: Bool = false
         ) {
             let clipStyle = ggAvatarClipStyle(clipStyle) // GHOST: square avatars (GGAvatarHooks.shape)
+            let visInfo = (overrideImage == nil) ? peer.flatMap { GGVisualProfileStore.shared.avatarInfo(for: $0.id.ggKey) } : nil
             let smallProfileImage = peer?.smallProfileImage
+            let resolvedResourceId: String?
+            if let visInfo {
+                resolvedResourceId = "ggvis.\(visInfo.fileId)"
+            } else {
+                resolvedResourceId = smallProfileImage?.resource.id.stringRepresentation
+            }
             let params = Params(
                 peerId: peer?.id,
-                resourceId: smallProfileImage?.resource.id.stringRepresentation,
+                resourceId: resolvedResourceId,
                 displayDimensions: displayDimensions,
                 clipStyle: clipStyle
             )
@@ -775,7 +828,19 @@ public final class AvatarNode: ASDisplayNode {
                 self.imageNode.view.mask = nil
             }
             
-            if let imageCache = genericContext.imageCache as? DirectMediaImageCache, let peer, let smallProfileImage = peer.smallProfileImage, let peerReference = PeerReference(peer) {
+            if let visInfo {
+                let targetMaxPx = max(64, Int(max(displayDimensions.width, displayDimensions.height) * UIScreenScale))
+                let visPath = visInfo.url.path
+                let loadSignal = Signal<CGImage?, NoError> { subscriber in
+                    subscriber.putNext(ggVisualAvatarCGImage(path: visPath, maxPixelSize: targetMaxPx))
+                    subscriber.putCompletion()
+                    return EmptyDisposable
+                }
+                |> runOn(Queue.concurrentDefaultQueue())
+                self.loadDisposable.set((loadSignal |> deliverOnMainQueue).start(next: { [weak self] cgImage in
+                    self?.imageNode.contents = cgImage
+                }).strict())
+            } else if let imageCache = genericContext.imageCache as? DirectMediaImageCache, let peer, let smallProfileImage = peer.smallProfileImage, let peerReference = PeerReference(peer) {
                 if let result = imageCache.getAvatarImage(peer: peerReference, resource: MediaResourceReference.avatar(peer: peerReference, resource: smallProfileImage.resource), immediateThumbnail: peer.profileImageRepresentations.first?.immediateThumbnailData, size: Int(displayDimensions.width * UIScreenScale), synchronous: synchronousLoad) {
                     if let image = result.image {
                         self.imageNode.contents = image.cgImage
@@ -789,6 +854,9 @@ public final class AvatarNode: ASDisplayNode {
                         }).strict())
                     }
                 }
+            } else {
+                self.loadDisposable.set(nil)
+                self.imageNode.contents = nil
             }
         }
         

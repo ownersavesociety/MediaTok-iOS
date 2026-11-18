@@ -20,6 +20,49 @@ import ComponentFlow
 import ComponentDisplayAdapters
 import StorySetIndicatorComponent
 import HierarchyTrackingLayer
+import GGCore
+import ImageIO
+
+private func ggVisualListAvatarSignal(path: String, maxPixelSize: Int) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+    return Signal { subscriber in
+        let url = URL(fileURLWithPath: path)
+        var decodedCGImage: CGImage?
+        if let source = CGImageSourceCreateWithURL(url as CFURL, nil) {
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: max(256, maxPixelSize)
+            ]
+            decodedCGImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        }
+        subscriber.putNext({ arguments in
+            guard let context = DrawingContext(size: arguments.drawingSize, clear: true) else {
+                return nil
+            }
+            context.withFlippedContext { c in
+                c.setBlendMode(.copy)
+                c.setFillColor(UIColor.black.cgColor)
+                c.fill(arguments.drawingRect)
+                if let cgImage = decodedCGImage {
+                    c.interpolationQuality = .high
+                    let aspectSize = CGSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height)).aspectFilled(arguments.drawingSize)
+                    let drawRect = CGRect(
+                        x: (arguments.drawingSize.width - aspectSize.width) * 0.5,
+                        y: (arguments.drawingSize.height - aspectSize.height) * 0.5,
+                        width: aspectSize.width,
+                        height: aspectSize.height
+                    )
+                    c.draw(cgImage, in: drawRect)
+                }
+            }
+            return context
+        })
+        subscriber.putCompletion()
+        return EmptyDisposable
+    }
+    |> runOn(Queue.concurrentDefaultQueue())
+}
 
 private class PeerInfoAvatarListLoadingStripNode: ASImageNode {
     private var currentInHierarchy = false
@@ -513,7 +556,12 @@ public final class PeerInfoAvatarListItemNode: ASDisplayNode {
             }
             markup = markupValue
         }
-        self.imageNode.setSignal(chatAvatarGalleryPhoto(account: self.context.account, representations: representations, immediateThumbnailData: immediateThumbnailData, autoFetchFullSize: true, attemptSynchronously: synchronous, skipThumbnail: fullSizeOnly, skipBlurIfLarge: isMain), attemptSynchronously: synchronous, dispatchOnDisplayLink: false)
+        if let localResource = representations.last?.representation.resource as? LocalFileMediaResource,
+           let visPath = GGVisualProfileStore.shared.avatarPath(matchingFileId: localResource.fileId) {
+            self.imageNode.setSignal(ggVisualListAvatarSignal(path: visPath, maxPixelSize: 1600), attemptSynchronously: synchronous, dispatchOnDisplayLink: false)
+        } else {
+            self.imageNode.setSignal(chatAvatarGalleryPhoto(account: self.context.account, representations: representations, immediateThumbnailData: immediateThumbnailData, autoFetchFullSize: true, attemptSynchronously: synchronous, skipThumbnail: fullSizeOnly, skipBlurIfLarge: isMain), attemptSynchronously: synchronous, dispatchOnDisplayLink: false)
+        }
         
         if let markup {
             if let videoNode = self.videoNode {
@@ -1453,6 +1501,7 @@ public final class PeerInfoAvatarListContainerNode: ASDisplayNode {
     }
     
     private var additionalEntryProgress: Signal<Float?, NoError>? = nil
+    private var visualRevision: Int32 = -1
     public func update(size: CGSize, peer: EnginePeer?, customNode: ASDisplayNode? = nil, additionalEntry: Signal<(TelegramMediaImageRepresentation, Float)?, NoError> = .single(nil), isExpanded: Bool, transition: ContainedViewLayoutTransition) {
         self.validLayout = size
         let previousExpanded = self.isExpanded
@@ -1462,6 +1511,14 @@ public final class PeerInfoAvatarListContainerNode: ASDisplayNode {
         }
         self.leftHighlightNode.frame = CGRect(origin: CGPoint(), size: CGSize(width: fadeWidth, height: size.height))
         self.rightHighlightNode.frame = CGRect(origin: CGPoint(x: size.width - fadeWidth, y: 0.0), size: CGSize(width: fadeWidth, height: size.height))
+
+        let currentVisRevision = GGVisualProfileStore.shared.currentRevision
+        if self.visualRevision != currentVisRevision {
+            self.visualRevision = currentVisRevision
+            if self.initializedList {
+                self.initializedList = false
+            }
+        }
         
         if let peer = peer, !self.initializedList {
             self.initializedList = true
@@ -1487,6 +1544,19 @@ public final class PeerInfoAvatarListContainerNode: ASDisplayNode {
                     let firstEntry = AvatarGalleryEntry.image(mediaId, reference, representations, videoRepresentations, peer, index, indexData, messageId, thumbnailData, caption, false, emojiMarkup)
                     entries.remove(at: 0)
                     entries.insert(firstEntry, at: 0)
+                    synchronous = true
+                }
+
+                if let visInfo = GGVisualProfileStore.shared.avatarInfo(for: peer.id.ggKey) {
+                    let visRep = TelegramMediaImageRepresentation(
+                        dimensions: PixelDimensions(width: Int32(visInfo.width), height: Int32(visInfo.height)),
+                        resource: LocalFileMediaResource(fileId: visInfo.fileId, size: nil, isSecretRelated: false),
+                        progressiveSizes: [],
+                        immediateThumbnailData: nil,
+                        hasVideo: false,
+                        isPersonal: false
+                    )
+                    entries.insert(AvatarGalleryEntry(representation: visRep, peer: peer), at: 0)
                     synchronous = true
                 }
                 

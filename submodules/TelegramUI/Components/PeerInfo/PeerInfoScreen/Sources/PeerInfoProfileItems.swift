@@ -18,6 +18,7 @@ import PeerNameColorItem
 import BoostLevelIconComponent
 import GGHooks // GHOST: peer info points
 import GGFeaturesShared // GHOST: Swiftgram-parity settings (W5-SG)
+import GGCore
 
 private let enabledPublicBioEntities: EnabledEntityTypes = [.allUrl, .mention, .hashtag]
 // GHOST: «Ссылки в описании» — every URL is tappable without Premium (GGExtrasPolicy.clickableBioLinks)
@@ -193,11 +194,12 @@ func infoItems(
                 interaction.requestLayout(animated)
             }))
         }
-        if let mainUsername = user.addressName {
+        if let mainUsername = GGVisualProfileStore.shared.resolveMainUsername(for: user.id.ggKey, realMain: user.addressName), !mainUsername.isEmpty {
             var additionalUsernames: String?
-            let usernames = user.usernames.filter { $0.isActive && $0.username != mainUsername }
-            if !usernames.isEmpty {
-                additionalUsernames = presentationData.strings.Profile_AdditionalUsernames(String(usernames.map { "@\($0.username)" }.joined(separator: ", "))).string
+            let activeReals = user.usernames.filter { $0.isActive }.map { $0.username }
+            let extraUsernames = GGVisualProfileStore.shared.resolveAdditionalUsernames(for: user.id.ggKey, realActive: activeReals, resolvedMain: mainUsername)
+            if !extraUsernames.isEmpty {
+                additionalUsernames = presentationData.strings.Profile_AdditionalUsernames(String(extraUsernames.map { "@\($0)" }.joined(separator: ", "))).string
             }
             
             items[currentPeerInfoSection]!.append(
@@ -227,6 +229,14 @@ func infoItems(
             )
         }
         
+        let visualUserBio = GGVisualProfileStore.shared.bio(for: user.id.ggKey)
+        let visualUserBadges = GGVisualProfileStore.shared.resolveBadges(
+            for: user.id.ggKey,
+            isVerified: user.isVerified,
+            isPremium: user.isPremium,
+            isScam: user.isScam,
+            isFake: user.isFake
+        )
         if let cachedData = data.cachedData as? CachedUserData {
             if let birthday = cachedData.birthday {
                 let isBirthdayToday = hasBirthdayToday(birthday: birthday)
@@ -248,8 +258,9 @@ func infoItems(
                 }))
             }
             
+            let effectiveAbout = visualUserBio ?? cachedData.about
             var hasAbout = false
-            if let about = cachedData.about, !about.isEmpty {
+            if let about = effectiveAbout, !about.isEmpty {
                 hasAbout = true
             }
             var hasNote = false
@@ -262,11 +273,11 @@ func infoItems(
                 hasWebApp = true
             }
             
-            if user.isFake {
+            if visualUserBadges.fake {
                 items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: ItemAbout, label: "", text: user.botInfo != nil ? presentationData.strings.UserInfo_FakeBotWarning : presentationData.strings.UserInfo_FakeUserWarning, textColor: .primary, textBehavior: .multiLine(maxLines: 100, enabledEntities: user.botInfo != nil ? enabledPrivateBioEntities : []), action: nil, requestLayout: { animated in
                     interaction.requestLayout(animated)
                 }))
-            } else if user.isScam {
+            } else if visualUserBadges.scam {
                 items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: ItemAbout, label: user.botInfo == nil ? presentationData.strings.Profile_About : presentationData.strings.Profile_BotInfo, text: user.botInfo != nil ? presentationData.strings.UserInfo_ScamBotWarning : presentationData.strings.UserInfo_ScamUserWarning, textColor: .primary, textBehavior: .multiLine(maxLines: 100, enabledEntities: user.botInfo != nil ? enabledPrivateBioEntities : []), action: nil, requestLayout: { animated in
                     interaction.requestLayout(animated)
                 }))
@@ -305,13 +316,13 @@ func infoItems(
                     })
                 }
                 
-                let ggHidesAbout = user.botInfo == nil && ggPeerInfoHidesItem(.description, data: data, context: context, interaction: interaction) // GHOST: features may hide «О себе» (GGPeerInfoHooks.hidesItem)
+                let ggHidesAbout = user.botInfo == nil && visualUserBio == nil && ggPeerInfoHidesItem(.description, data: data, context: context, interaction: interaction) // GHOST: features may hide «О себе» (GGPeerInfoHooks.hidesItem)
                 if (hasAbout || hasWebApp) && !ggHidesAbout { // GHOST: see ggHidesAbout
                     var label: String = ""
-                    if let about = cachedData.about, !about.isEmpty {
+                    if let about = effectiveAbout, !about.isEmpty {
                         label = user.botInfo == nil ? presentationData.strings.Profile_About : presentationData.strings.Profile_BotInfo
                     }
-                    items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: ItemAbout, label: label, text: cachedData.about ?? "", textColor: .primary, textBehavior: .multiLine(maxLines: 100, enabledEntities: user.isPremium ? enabledPublicBioEntities : enabledPrivateBioEntities), action: isMyProfile ? { node, _ in
+                    items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: ItemAbout, label: label, text: effectiveAbout ?? "", textColor: .primary, textBehavior: .multiLine(maxLines: 100, enabledEntities: (user.isPremium || visualUserBio != nil) ? enabledPublicBioEntities : enabledPrivateBioEntities), action: isMyProfile ? { node, _ in
                         bioContextAction(node, nil, nil)
                     } : nil, linkItemAction: bioLinkAction, button: actionButton, contextAction: bioContextAction, requestLayout: { animated in
                         interaction.requestLayout(animated)
@@ -629,11 +640,12 @@ func infoItems(
                 ))
             }
             
-            if let mainUsername = channel.addressName {
+            if let mainUsername = GGVisualProfileStore.shared.resolveMainUsername(for: channel.id.ggKey, realMain: channel.addressName), !mainUsername.isEmpty {
                 var additionalUsernames: String?
-                let usernames = channel.usernames.filter { $0.isActive && $0.username != mainUsername }
-                if !usernames.isEmpty {
-                    additionalUsernames = presentationData.strings.Profile_AdditionalUsernames(String(usernames.map { "@\($0.username)" }.joined(separator: ", "))).string
+                let activeReals = channel.usernames.filter { $0.isActive }.map { $0.username }
+                let extraUsernames = GGVisualProfileStore.shared.resolveAdditionalUsernames(for: channel.id.ggKey, realActive: activeReals, resolvedMain: mainUsername)
+                if !extraUsernames.isEmpty {
+                    additionalUsernames = presentationData.strings.Profile_AdditionalUsernames(String(extraUsernames.map { "@\($0)" }.joined(separator: ", "))).string
                 }
                 
                 items[currentPeerInfoSection]!.append(
@@ -666,27 +678,37 @@ func infoItems(
                     )
                 )
             }
+            let visualChannelBio = GGVisualProfileStore.shared.bio(for: channel.id.ggKey)
+            let visualChannelBadges = GGVisualProfileStore.shared.resolveBadges(
+                for: channel.id.ggKey,
+                isVerified: channel.isVerified,
+                isPremium: false,
+                isScam: channel.isScam,
+                isFake: channel.isFake
+            )
             if let cachedData = data.cachedData as? CachedChannelData {
                 let aboutText: String?
-                if channel.isFake {
+                if visualChannelBadges.fake {
                     if case .broadcast = channel.info {
                         aboutText = presentationData.strings.ChannelInfo_FakeChannelWarning
                     } else {
                         aboutText = presentationData.strings.GroupInfo_FakeGroupWarning
                     }
-                } else if channel.isScam {
+                } else if visualChannelBadges.scam {
                     if case .broadcast = channel.info {
                         aboutText = presentationData.strings.ChannelInfo_ScamChannelWarning
                     } else {
                         aboutText = presentationData.strings.GroupInfo_ScamGroupWarning
                     }
+                } else if let visBio = visualChannelBio, !visBio.isEmpty {
+                    aboutText = visBio
                 } else if let about = cachedData.about, !about.isEmpty {
                     aboutText = about
                 } else {
                     aboutText = nil
                 }
                 
-                if let aboutText = aboutText, !(aboutText == cachedData.about && ggPeerInfoHidesItem(.description, data: data, context: context, interaction: interaction)) { // GHOST: features may hide the description, never a scam / fake warning (GGPeerInfoHooks.hidesItem)
+                if let aboutText = aboutText, !(aboutText == cachedData.about && visualChannelBio == nil && ggPeerInfoHidesItem(.description, data: data, context: context, interaction: interaction)) { // GHOST: features may hide the description, never a scam / fake warning (GGPeerInfoHooks.hidesItem)
                     var enabledEntities = enabledPublicBioEntities
                     if case .group = channel.info {
                         enabledEntities = enabledPrivateBioEntities
@@ -830,19 +852,65 @@ func infoItems(
             }
         }
     } else if case let .legacyGroup(group) = data.peer {
+        if let mainUsername = GGVisualProfileStore.shared.resolveMainUsername(for: group.id.ggKey, realMain: nil), !mainUsername.isEmpty {
+            let extraUsernames = GGVisualProfileStore.shared.resolveAdditionalUsernames(for: group.id.ggKey, realActive: [], resolvedMain: mainUsername)
+            var additionalUsernames: String?
+            if !extraUsernames.isEmpty {
+                additionalUsernames = presentationData.strings.Profile_AdditionalUsernames(String(extraUsernames.map { "@\($0)" }.joined(separator: ", "))).string
+            }
+            items[currentPeerInfoSection]!.append(
+                PeerInfoScreenLabeledValueItem(
+                    id: 901,
+                    label: presentationData.strings.Channel_LinkItem,
+                    text: "https://t.me/\(mainUsername)",
+                    additionalText: additionalUsernames,
+                    textColor: .accent,
+                    icon: .qrCode,
+                    action: { _, progress in
+                        interaction.openUsername(mainUsername, true, progress)
+                    }, longTapAction: { sourceNode in
+                        interaction.openPeerInfoContextMenu(.link(customLink: nil), sourceNode, nil)
+                    }, linkItemAction: { type, item, sourceNode, sourceRect, progress in
+                        if case .tap = type {
+                            if case let .mention(username) = item {
+                                interaction.openUsername(String(username.suffix(from: username.index(username.startIndex, offsetBy: 1))), false, progress)
+                            }
+                        } else if case .longTap = type {
+                            if case let .mention(username) = item {
+                                interaction.openPeerInfoContextMenu(.link(customLink: username), sourceNode, sourceRect)
+                            }
+                        }
+                    }, iconAction: {
+                        interaction.openQrCode()
+                    }, requestLayout: { animated in
+                        interaction.requestLayout(animated)
+                    }
+                )
+            )
+        }
+        let visualGroupBio = GGVisualProfileStore.shared.bio(for: group.id.ggKey)
+        let visualGroupBadges = GGVisualProfileStore.shared.resolveBadges(
+            for: group.id.ggKey,
+            isVerified: group.isVerified,
+            isPremium: false,
+            isScam: group.isScam,
+            isFake: group.isFake
+        )
         if let cachedData = data.cachedData as? CachedGroupData {
             let aboutText: String?
-            if group.isFake {
+            if visualGroupBadges.fake {
                 aboutText = presentationData.strings.GroupInfo_FakeGroupWarning
-            } else if group.isScam {
+            } else if visualGroupBadges.scam {
                 aboutText = presentationData.strings.GroupInfo_ScamGroupWarning
+            } else if let visBio = visualGroupBio, !visBio.isEmpty {
+                aboutText = visBio
             } else if let about = cachedData.about, !about.isEmpty {
                 aboutText = about
             } else {
                 aboutText = nil
             }
             
-            if let aboutText = aboutText, !(aboutText == cachedData.about && ggPeerInfoHidesItem(.description, data: data, context: context, interaction: interaction)) { // GHOST: features may hide the description, never a scam / fake warning (GGPeerInfoHooks.hidesItem)
+            if let aboutText = aboutText, !(aboutText == cachedData.about && visualGroupBio == nil && ggPeerInfoHidesItem(.description, data: data, context: context, interaction: interaction)) { // GHOST: features may hide the description, never a scam / fake warning (GGPeerInfoHooks.hidesItem)
                 items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: 0, label: presentationData.strings.Channel_Info_Description, text: aboutText, textColor: .primary, textBehavior: .multiLine(maxLines: 100, enabledEntities: enabledPrivateBioEntities), action: isMyProfile ? { node, _ in
                     bioContextAction(node, nil, nil)
                 } : nil, linkItemAction: bioLinkAction, contextAction: bioContextAction, requestLayout: { animated in

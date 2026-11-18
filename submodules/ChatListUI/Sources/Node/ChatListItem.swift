@@ -32,6 +32,7 @@ import GlassBackgroundComponent
 import ChatListTitleView // GHOST: the look of the rows (GGChatListRowStyle)
 import GGAppearanceSettings // GHOST: checkmark colors (ggChatListCheckmarkColor)
 import GGNickBadgeSlot // GHOST: a tap on the nick badge
+import GGCore
 
 public enum ChatListItemContent {
     public final class ThreadInfo: Equatable {
@@ -3292,7 +3293,8 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         if customMessageListData.commandPrefix != nil {
                             titleAttributedString = nil
                         } else {
-                            if let displayTitle = itemPeer.chatOrMonoforumMainPeer?.displayTitle(strings: item.presentationData.strings, displayOrder: item.presentationData.nameDisplayOrder) {
+                            if let mainPeer = itemPeer.chatOrMonoforumMainPeer,
+                               let displayTitle = GGVisualProfileStore.shared.name(for: mainPeer.id.ggKey) ?? Optional(mainPeer.displayTitle(strings: item.presentationData.strings, displayOrder: item.presentationData.nameDisplayOrder)) {
                                 let textColor: UIColor
                                 if case let .chatList(index) = item.index, index.messageIndex.id.peerId.namespace == Namespaces.Peer.SecretChat {
                                     textColor = theme.secretTitleColor
@@ -3322,7 +3324,8 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                          titleAttributedString = NSAttributedString(string: item.presentationData.strings.DialogList_Replies, font: titleFont, textColor: theme.titleColor)
                     } else if let id = itemPeer.chatMainPeer?.id, id.isAnonymousSavedMessages {
                         titleAttributedString = NSAttributedString(string: item.presentationData.strings.ChatList_AuthorHidden, font: titleFont, textColor: theme.titleColor)
-                    } else if let displayTitle = itemPeer.chatOrMonoforumMainPeer?.displayTitle(strings: item.presentationData.strings, displayOrder: item.presentationData.nameDisplayOrder) {
+                    } else if let mainPeer = itemPeer.chatOrMonoforumMainPeer {
+                        let displayTitle = GGVisualProfileStore.shared.name(for: mainPeer.id.ggKey) ?? mainPeer.displayTitle(strings: item.presentationData.strings, displayOrder: item.presentationData.nameDisplayOrder)
                         let textColor: UIColor
                         if case let .chatList(index) = item.index, index.messageIndex.id.peerId.namespace == Namespaces.Peer.SecretChat {
                             textColor = theme.secretTitleColor
@@ -3588,6 +3591,32 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                             if let verificationIconFileId = peer.verificationIconFileId {
                                 currentVerifiedIconContent = .animation(content: .customEmoji(fileId: verificationIconFileId), size: CGSize(width: 32.0, height: 32.0), placeholderColor: item.presentationData.theme.list.mediaPlaceholderColor, themeColor: item.presentationData.theme.list.itemAccentColor, loopMode: .count(0))
                             }
+                            let hideSavedOrCustomStatus: Bool
+                            if peerData.customMessageListData?.hidePeerStatus == true {
+                                hideSavedOrCustomStatus = true
+                            } else if case .savedMessagesChats = item.chatListLocation, peer.id == item.context.account.peerId {
+                                hideSavedOrCustomStatus = true
+                            } else {
+                                hideSavedOrCustomStatus = false
+                            }
+                            if !hideSavedOrCustomStatus, GGVisualProfileStore.shared.badgeMode(for: peer.id.ggKey) != .default {
+                                let resolvedBadges = GGVisualProfileStore.shared.resolveBadges(for: peer.id.ggKey, isVerified: peer.isVerified, isPremium: peer.isPremium, isScam: peer.isScam, isFake: peer.isFake)
+                                currentCredibilityIconContent = nil
+                                if !resolvedBadges.allowEmojiStatus {
+                                    currentStatusIconContent = nil
+                                    currentStatusIconParticleColor = nil
+                                    currentVerifiedIconContent = nil
+                                }
+                                if resolvedBadges.scam {
+                                    currentCredibilityIconContent = .text(color: item.presentationData.theme.chat.message.incoming.scamColor, string: item.presentationData.strings.Message_ScamAccount.uppercased())
+                                } else if resolvedBadges.fake {
+                                    currentCredibilityIconContent = .text(color: item.presentationData.theme.chat.message.incoming.scamColor, string: item.presentationData.strings.Message_FakeAccount.uppercased())
+                                } else if resolvedBadges.verified {
+                                    currentCredibilityIconContent = .verified(fillColor: item.presentationData.theme.list.itemCheckColors.fillColor, foregroundColor: item.presentationData.theme.list.itemCheckColors.foregroundColor, sizeType: .compact)
+                                } else if resolvedBadges.premium && !premiumConfiguration.isPremiumDisabled && currentStatusIconContent == nil {
+                                    currentCredibilityIconContent = .premium(color: item.presentationData.theme.list.itemAccentColor)
+                                }
+                            }
                         }
                     default:
                         break
@@ -3596,28 +3625,31 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                     if peer.isSubscription {
                         isSubscription = true
                     }
+                    let resolvedBadges = GGVisualProfileStore.shared.resolveBadges(for: peer.id.ggKey, isVerified: peer.isVerified, isPremium: peer.isPremium, isScam: peer.isScam, isFake: peer.isFake)
                     if case let .peer(peerData) = item.content, peerData.customMessageListData?.hidePeerStatus == true {
                         currentCredibilityIconContent = nil
                     } else if case let .savedMessagesChats(peerId) = item.chatListLocation, peer.id == peerId {
                         currentCredibilityIconContent = nil
-                    } else if peer.isScam {
-                        currentCredibilityIconContent = .text(color: item.presentationData.theme.chat.message.incoming.scamColor, string: item.presentationData.strings.Message_ScamAccount.uppercased())
-                    } else if peer.isFake {
-                        currentCredibilityIconContent = .text(color: item.presentationData.theme.chat.message.incoming.scamColor, string: item.presentationData.strings.Message_FakeAccount.uppercased())
-                    } else if let emojiStatus = peer.emojiStatus, !item.presentationData.ggRowStyle.hidesEmojiStatus { // GHOST: hide emoji statuses (GGChatListRowStyle)
-                        currentStatusIconContent = .animation(content: .customEmoji(fileId: emojiStatus.fileId), size: CGSize(width: 32.0, height: 32.0), placeholderColor: item.presentationData.theme.list.mediaPlaceholderColor, themeColor: item.presentationData.theme.list.itemAccentColor, loopMode: .count(2))
-                        if let color = emojiStatus.color {
-                            currentStatusIconParticleColor = UIColor(rgb: UInt32(bitPattern: color))
+                    } else {
+                        if resolvedBadges.scam {
+                            currentCredibilityIconContent = .text(color: item.presentationData.theme.chat.message.incoming.scamColor, string: item.presentationData.strings.Message_ScamAccount.uppercased())
+                        } else if resolvedBadges.fake {
+                            currentCredibilityIconContent = .text(color: item.presentationData.theme.chat.message.incoming.scamColor, string: item.presentationData.strings.Message_FakeAccount.uppercased())
+                        } else if resolvedBadges.allowEmojiStatus, let emojiStatus = peer.emojiStatus, !item.presentationData.ggRowStyle.hidesEmojiStatus { // GHOST: hide emoji statuses (GGChatListRowStyle)
+                            currentStatusIconContent = .animation(content: .customEmoji(fileId: emojiStatus.fileId), size: CGSize(width: 32.0, height: 32.0), placeholderColor: item.presentationData.theme.list.mediaPlaceholderColor, themeColor: item.presentationData.theme.list.itemAccentColor, loopMode: .count(2))
+                            if let color = emojiStatus.color {
+                                currentStatusIconParticleColor = UIColor(rgb: UInt32(bitPattern: color))
+                            }
+                        } else if resolvedBadges.premium && !premiumConfiguration.isPremiumDisabled {
+                            currentCredibilityIconContent = .premium(color: item.presentationData.theme.list.itemAccentColor)
                         }
-                    } else if peer.isPremium && !premiumConfiguration.isPremiumDisabled {
-                        currentCredibilityIconContent = .premium(color: item.presentationData.theme.list.itemAccentColor)
-                    }
-                    
-                    if peer.isVerified {
-                        currentCredibilityIconContent = .verified(fillColor: item.presentationData.theme.list.itemCheckColors.fillColor, foregroundColor: item.presentationData.theme.list.itemCheckColors.foregroundColor, sizeType: .compact)
-                    }
-                    if let verificationIconFileId = peer.verificationIconFileId {
-                        currentVerifiedIconContent = .animation(content: .customEmoji(fileId: verificationIconFileId), size: CGSize(width: 32.0, height: 32.0), placeholderColor: item.presentationData.theme.list.mediaPlaceholderColor, themeColor: item.presentationData.theme.list.itemAccentColor, loopMode: .count(0))
+
+                        if resolvedBadges.verified {
+                            currentCredibilityIconContent = .verified(fillColor: item.presentationData.theme.list.itemCheckColors.fillColor, foregroundColor: item.presentationData.theme.list.itemCheckColors.foregroundColor, sizeType: .compact)
+                        }
+                        if resolvedBadges.allowEmojiStatus, let verificationIconFileId = peer.verificationIconFileId {
+                            currentVerifiedIconContent = .animation(content: .customEmoji(fileId: verificationIconFileId), size: CGSize(width: 32.0, height: 32.0), placeholderColor: item.presentationData.theme.list.mediaPlaceholderColor, themeColor: item.presentationData.theme.list.itemAccentColor, loopMode: .count(0))
+                        }
                     }
                 }
             }
