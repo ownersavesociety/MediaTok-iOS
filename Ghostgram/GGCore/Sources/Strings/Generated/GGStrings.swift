@@ -955,14 +955,24 @@ public enum GGStrings {
                 return GGLocalization.shared.format("appearance.font.added", [("name", name)])
             }
 
-            /// 48 built-in offline fonts with full Cyrillic and Latin support. Applied after restarting MediaTok.
+            /// 80 built-in offline fonts with full Cyrillic and Latin support. Applied after restarting MediaTok.
             public static var bundledFooter: Swift.String {
                 return GGLocalization.shared.string("appearance.font.bundledFooter")
             }
 
-            /// MediaTok Fonts (48, Cyrillic + Latin)
+            /// MediaTok Fonts (80, Cyrillic + Latin)
             public static var bundledHeader: Swift.String {
                 return GGLocalization.shared.string("appearance.font.bundledHeader")
+            }
+
+            /// Create Custom Font (.ttf)
+            public static var createTtf: Swift.String {
+                return GGLocalization.shared.string("appearance.font.createTtf")
+            }
+
+            /// Draw your own glyphs on a grid and compile a .ttf
+            public static var createTtfInfo: Swift.String {
+                return GGLocalization.shared.string("appearance.font.createTtfInfo")
             }
 
             /// A .ttf, .otf or .ttc file from Files. The font stays on this device and applies after a restart.
@@ -1035,7 +1045,7 @@ public enum GGStrings {
                 return GGLocalization.shared.string("appearance.font.serif")
             }
 
-            /// 48 built-in, system, iOS, or your own .ttf/.otf
+            /// 80 built-in, .ttf creator, iOS, or your own file
             public static var subtitle: Swift.String {
                 return GGLocalization.shared.string("appearance.font.subtitle")
             }
@@ -1063,6 +1073,23 @@ public enum GGStrings {
             /// You can add up to 50 fonts — remove one first
             public static var tooMany: Swift.String {
                 return GGLocalization.shared.string("appearance.font.tooMany")
+            }
+        }
+
+        public enum LangStudio {
+            /// language translation pack editor phrases custom lang
+            public static var keywords: Swift.String {
+                return GGLocalization.shared.string("appearance.langStudio.keywords")
+            }
+
+            /// 66 Telegram packs + full string editor (LIVE)
+            public static var subtitle: Swift.String {
+                return GGLocalization.shared.string("appearance.langStudio.subtitle")
+            }
+
+            /// MediaTok Languages & String Editor
+            public static var title: Swift.String {
+                return GGLocalization.shared.string("appearance.langStudio.title")
             }
         }
 

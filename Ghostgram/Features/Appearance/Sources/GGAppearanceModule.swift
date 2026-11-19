@@ -17,6 +17,7 @@ public enum GGAppearanceModule {
 
         GGFonts.register()
         GGChatTextFonts.register()
+        GGMediaTokLangs.register()
         GGCustomFonts.registerProvider()
         GGAppearanceTheme.register()
         GGAmoledKeyboard.register()

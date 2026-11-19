@@ -18,7 +18,7 @@ enum GGMediaTokFonts {
     static let valuePrefix = "bundled:"
 
     static let all: [GGBundledFont] = [
-        // Современные (16)
+        // Современные (26)
         GGBundledFont(slug: "inter", displayName: "Inter", category: "Современные", resourceName: "mt_inter"),
         GGBundledFont(slug: "montserrat", displayName: "Montserrat", category: "Современные", resourceName: "mt_montserrat"),
         GGBundledFont(slug: "manrope", displayName: "Manrope", category: "Современные", resourceName: "mt_manrope"),
@@ -35,8 +35,18 @@ enum GGMediaTokFonts {
         GGBundledFont(slug: "fira_sans", displayName: "Fira Sans", category: "Современные", resourceName: "mt_fira_sans"),
         GGBundledFont(slug: "exo_2", displayName: "Exo 2", category: "Современные", resourceName: "mt_exo_2"),
         GGBundledFont(slug: "oswald", displayName: "Oswald", category: "Современные", resourceName: "mt_oswald"),
+        GGBundledFont(slug: "sofia_sans", displayName: "Sofia Sans", category: "Современные", resourceName: "mt_sofia_sans"),
+        GGBundledFont(slug: "commissioner", displayName: "Commissioner", category: "Современные", resourceName: "mt_commissioner"),
+        GGBundledFont(slug: "cuprum", displayName: "Cuprum", category: "Современные", resourceName: "mt_cuprum"),
+        GGBundledFont(slug: "yanone_kaffeesatz", displayName: "Yanone Kaffeesatz", category: "Современные", resourceName: "mt_yanone_kaffeesatz"),
+        GGBundledFont(slug: "didact_gothic", displayName: "Didact Gothic", category: "Современные", resourceName: "mt_didact_gothic"),
+        GGBundledFont(slug: "tenor_sans", displayName: "Tenor Sans", category: "Современные", resourceName: "mt_tenor_sans"),
+        GGBundledFont(slug: "el_messiri", displayName: "El Messiri", category: "Современные", resourceName: "mt_el_messiri"),
+        GGBundledFont(slug: "alumni_sans", displayName: "Alumni Sans", category: "Современные", resourceName: "mt_alumni_sans"),
+        GGBundledFont(slug: "bellota_text", displayName: "Bellota Text", category: "Современные", resourceName: "mt_bellota_text"),
+        GGBundledFont(slug: "wix_madefor_display", displayName: "Wix Madefor Display", category: "Современные", resourceName: "mt_wix_madefor_display"),
 
-        // Кибер / Пиксель / Арт (13)
+        // Кибер / Пиксель / Арт (29)
         GGBundledFont(slug: "unbounded", displayName: "Unbounded", category: "Кибер / Пиксель / Арт", resourceName: "mt_unbounded"),
         GGBundledFont(slug: "russo_one", displayName: "Russo One", category: "Кибер / Пиксель / Арт", resourceName: "mt_russo_one"),
         GGBundledFont(slug: "tektur", displayName: "Tektur", category: "Кибер / Пиксель / Арт", resourceName: "mt_tektur"),
@@ -50,16 +60,36 @@ enum GGMediaTokFonts {
         GGBundledFont(slug: "kelly_slab", displayName: "Kelly Slab", category: "Кибер / Пиксель / Арт", resourceName: "mt_kelly_slab"),
         GGBundledFont(slug: "underdog", displayName: "Underdog", category: "Кибер / Пиксель / Арт", resourceName: "mt_underdog"),
         GGBundledFont(slug: "poiret_one", displayName: "Poiret One", category: "Кибер / Пиксель / Арт", resourceName: "mt_poiret_one"),
+        GGBundledFont(slug: "ruslan_display", displayName: "Ruslan Display", category: "Кибер / Пиксель / Арт", resourceName: "mt_ruslan_display"),
+        GGBundledFont(slug: "seymour_one", displayName: "Seymour One", category: "Кибер / Пиксель / Арт", resourceName: "mt_seymour_one"),
+        GGBundledFont(slug: "stalinist_one", displayName: "Stalinist One", category: "Кибер / Пиксель / Арт", resourceName: "mt_stalinist_one"),
+        GGBundledFont(slug: "kablammo", displayName: "Kablammo", category: "Кибер / Пиксель / Арт", resourceName: "mt_kablammo"),
+        GGBundledFont(slug: "rubik_wet_paint", displayName: "Rubik Wet Paint", category: "Кибер / Пиксель / Арт", resourceName: "mt_rubik_wet_paint"),
+        GGBundledFont(slug: "rubik_spray_paint", displayName: "Rubik Spray Paint", category: "Кибер / Пиксель / Арт", resourceName: "mt_rubik_spray_paint"),
+        GGBundledFont(slug: "rubik_vinyl", displayName: "Rubik Vinyl", category: "Кибер / Пиксель / Арт", resourceName: "mt_rubik_vinyl"),
+        GGBundledFont(slug: "rubik_iso", displayName: "Rubik Iso", category: "Кибер / Пиксель / Арт", resourceName: "mt_rubik_iso"),
+        GGBundledFont(slug: "rubik_broken_fax", displayName: "Rubik Broken Fax", category: "Кибер / Пиксель / Арт", resourceName: "mt_rubik_broken_fax"),
+        GGBundledFont(slug: "rubik_burned", displayName: "Rubik Burned", category: "Кибер / Пиксель / Арт", resourceName: "mt_rubik_burned"),
+        GGBundledFont(slug: "rubik_distressed", displayName: "Rubik Distressed", category: "Кибер / Пиксель / Арт", resourceName: "mt_rubik_distressed"),
+        GGBundledFont(slug: "rubik_marker_hatch", displayName: "Rubik Marker Hatch", category: "Кибер / Пиксель / Арт", resourceName: "mt_rubik_marker_hatch"),
+        GGBundledFont(slug: "rubik_maze", displayName: "Rubik Maze", category: "Кибер / Пиксель / Арт", resourceName: "mt_rubik_maze"),
+        GGBundledFont(slug: "rubik_moonrocks", displayName: "Rubik Moonrocks", category: "Кибер / Пиксель / Арт", resourceName: "mt_rubik_moonrocks"),
+        GGBundledFont(slug: "rubik_puddles", displayName: "Rubik Puddles", category: "Кибер / Пиксель / Арт", resourceName: "mt_rubik_puddles"),
+        GGBundledFont(slug: "rubik_scribble", displayName: "Rubik Scribble", category: "Кибер / Пиксель / Арт", resourceName: "mt_rubik_scribble"),
 
-        // С засечками (6)
+        // С засечками (10)
         GGBundledFont(slug: "playfair_display", displayName: "Playfair Display", category: "Serif", resourceName: "mt_playfair_display"),
         GGBundledFont(slug: "cormorant_garamond", displayName: "Cormorant Garamond", category: "Serif", resourceName: "mt_cormorant_garamond"),
         GGBundledFont(slug: "lora", displayName: "Lora", category: "Serif", resourceName: "mt_lora"),
         GGBundledFont(slug: "yeseva_one", displayName: "Yeseva One", category: "Serif", resourceName: "mt_yeseva_one"),
         GGBundledFont(slug: "philosopher", displayName: "Philosopher", category: "Serif", resourceName: "mt_philosopher"),
         GGBundledFont(slug: "alice", displayName: "Alice", category: "Serif", resourceName: "mt_alice"),
+        GGBundledFont(slug: "merriweather", displayName: "Merriweather", category: "Serif", resourceName: "mt_merriweather"),
+        GGBundledFont(slug: "vollkorn", displayName: "Vollkorn", category: "Serif", resourceName: "mt_vollkorn"),
+        GGBundledFont(slug: "forum", displayName: "Forum", category: "Serif", resourceName: "mt_forum"),
+        GGBundledFont(slug: "prata", displayName: "Prata", category: "Serif", resourceName: "mt_prata"),
 
-        // Рукописные и Фан (9)
+        // Рукописные и Фан (11)
         GGBundledFont(slug: "caveat", displayName: "Caveat", category: "Рукописные и Фан", resourceName: "mt_caveat"),
         GGBundledFont(slug: "pacifico", displayName: "Pacifico", category: "Рукописные и Фан", resourceName: "mt_pacifico"),
         GGBundledFont(slug: "marck_script", displayName: "Marck Script", category: "Рукописные и Фан", resourceName: "mt_marck_script"),
@@ -69,6 +99,8 @@ enum GGMediaTokFonts {
         GGBundledFont(slug: "neucha", displayName: "Neucha", category: "Рукописные и Фан", resourceName: "mt_neucha"),
         GGBundledFont(slug: "balsamiq_sans", displayName: "Balsamiq Sans", category: "Рукописные и Фан", resourceName: "mt_balsamiq_sans"),
         GGBundledFont(slug: "shantell_sans", displayName: "Shantell Sans", category: "Рукописные и Фан", resourceName: "mt_shantell_sans"),
+        GGBundledFont(slug: "pangolin", displayName: "Pangolin", category: "Рукописные и Фан", resourceName: "mt_pangolin"),
+        GGBundledFont(slug: "comforter_brush", displayName: "Comforter Brush", category: "Рукописные и Фан", resourceName: "mt_comforter_brush"),
 
         // Моноширинные (4)
         GGBundledFont(slug: "jetbrains_mono", displayName: "JetBrains Mono", category: "Mono", resourceName: "mt_jetbrains_mono"),

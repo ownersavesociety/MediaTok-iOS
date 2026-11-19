@@ -105,6 +105,23 @@ enum GGAppearanceMenu {
             return GGChatTextFonts.selectedDisplayName
         })
 
+        // Language Studio: 66 public Telegram language packs + Full Language Editor (all strings, LIVE).
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.langs.studio",
+            section: .main(of: tab),
+            order: 180,
+            title: { GGStrings.Appearance.LangStudio.title },
+            subtitle: { GGStrings.Appearance.LangStudio.subtitle },
+            kind: .action({ context in
+                GGMediaTokLangs.presentStudio(context: context)
+            }),
+            searchKeywords: { [GGStrings.Appearance.LangStudio.keywords] },
+            label: { _ in
+                let n = GGMediaTokLangs.overrideCount
+                return n > 0 ? "\(n)" : "66+"
+            }
+        ))
+
         // Bubbles.
         GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: GGAppearanceMenu.messagesBubbles, screen: .tab(tab), order: 300, header: { GGStrings.Appearance.Bubbles.header }, footer: { _ in GGStrings.Appearance.Bubbles.footer }))
         let editorOn: (GGMenuContext) -> Bool = { _ in GGAppearanceSettings.bubbleEditor.value }
@@ -336,6 +353,9 @@ enum GGAppearanceMenu {
         }
         GGMenuRegistry.register(GGMenuRow(id: "appearance.font.add", section: GGAppearanceMenu.fontCustom, order: 2000, title: { GGStrings.Appearance.Font.add }, kind: .action({ context in
             GGPickers.pickFont(context: context)
+        }), searchKeywords: { [GGStrings.Appearance.Font.keywords] }))
+        GGMenuRegistry.register(GGMenuRow(id: "appearance.font.createTtf", section: GGAppearanceMenu.fontCustom, order: 2050, title: { GGStrings.Appearance.Font.createTtf }, subtitle: { GGStrings.Appearance.Font.createTtfInfo }, kind: .action({ context in
+            GGMediaTokTtfCreator.present(context: context)
         }), searchKeywords: { [GGStrings.Appearance.Font.keywords] }))
         GGMenuRegistry.register(GGMenuRow(id: "appearance.font.remove", section: GGAppearanceMenu.fontCustom, order: 2100, title: { GGStrings.Appearance.Font.remove }, kind: .action({ context in
             GGAppearanceMenu.presentRemoveFont(context: context)
