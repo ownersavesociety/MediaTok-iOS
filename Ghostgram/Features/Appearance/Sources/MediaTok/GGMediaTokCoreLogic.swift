@@ -990,4 +990,558 @@ enum GGMediaTokCoreLogic {
         full[headOffset + 11] = UInt8(adj & 0xFF)
         return full
     }
+
+    // MARK: - 8. Personal /stickers 10K Vault Search, Translit & Vision Tagging
+
+    struct StickerEntry: Codable, Equatable {
+        let id: String
+        let fileName: String
+        var tags: [String]
+        var ocrText: String
+        var visionLabels: [String]
+        let addedAt: Int64
+        var usageCount: Int
+    }
+
+    static func normalizeSearchText(_ text: String) -> String {
+        let lower = text.lowercased().replacingOccurrences(of: "ё", with: "е")
+        var out = ""
+        out.reserveCapacity(lower.count)
+        var lastWasSpace = true
+        for scalar in lower.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) {
+                out.unicodeScalars.append(scalar)
+                lastWasSpace = false
+            } else if !lastWasSpace {
+                out.append(" ")
+                lastWasSpace = true
+            }
+        }
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static let ruToEnMap: [Character: String] = [
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ж": "zh",
+        "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m", "н": "n",
+        "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f",
+        "х": "h", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y",
+        "ь": "", "э": "e", "ю": "yu", "я": "ya"
+    ]
+
+    private static let enToRuDigraphs: [(String, String)] = [
+        ("sch", "щ"), ("shch", "щ"), ("zh", "ж"), ("ch", "ч"), ("sh", "ш"),
+        ("yu", "ю"), ("ya", "я"), ("yo", "е"), ("ts", "ц"), ("kh", "х")
+    ]
+
+    private static let enToRuSingle: [Character: String] = [
+        "a": "а", "b": "б", "c": "к", "d": "д", "e": "е", "f": "ф", "g": "г",
+        "h": "х", "i": "и", "j": "дж", "k": "к", "l": "л", "m": "м", "n": "н",
+        "o": "о", "p": "п", "q": "к", "r": "р", "s": "с", "t": "т", "u": "у",
+        "v": "в", "w": "в", "x": "кс", "y": "и", "z": "з"
+    ]
+
+    static func ruEnTranslitVariants(_ token: String) -> [String] {
+        let norm = GGMediaTokCoreLogic.normalizeSearchText(token)
+        guard !norm.isEmpty else { return [] }
+        var variants: [String] = [norm]
+
+        var toLatin = ""
+        for ch in norm {
+            if let rep = GGMediaTokCoreLogic.ruToEnMap[ch] {
+                toLatin += rep
+            } else {
+                toLatin.append(ch)
+            }
+        }
+        if !toLatin.isEmpty && !variants.contains(toLatin) {
+            variants.append(toLatin)
+        }
+        // Also collapse double letters (e.g., "mellstroy" <-> "мелстрой")
+        let altLatin = toLatin.replacingOccurrences(of: "h", with: "")
+        if !altLatin.isEmpty && !variants.contains(altLatin) {
+            variants.append(altLatin)
+        }
+
+        // Phonetic Latin -> Cyrillic
+        var idx = norm.startIndex
+        var toCyr = ""
+        while idx < norm.endIndex {
+            var matched = false
+            for (digraph, cyr) in GGMediaTokCoreLogic.enToRuDigraphs {
+                if norm[idx...].hasPrefix(digraph) {
+                    toCyr += cyr
+                    idx = norm.index(idx, offsetBy: digraph.count)
+                    matched = true
+                    break
+                }
+            }
+            if !matched {
+                let ch = norm[idx]
+                if let rep = GGMediaTokCoreLogic.enToRuSingle[ch] {
+                    toCyr += rep
+                } else {
+                    toCyr.append(ch)
+                }
+                idx = norm.index(after: idx)
+            }
+        }
+        if !toCyr.isEmpty && !variants.contains(toCyr) {
+            variants.append(toCyr)
+        }
+        if norm.contains("ll") {
+            let singleL = toCyr.replacingOccurrences(of: "лл", with: "л")
+            if !variants.contains(singleL) {
+                variants.append(singleL)
+            }
+        } else if norm.contains("елс") || norm.contains("els") {
+            let doubleL = norm.replacingOccurrences(of: "лс", with: "ллс")
+            if !variants.contains(doubleL) {
+                variants.append(doubleL)
+            }
+        }
+        return variants
+    }
+
+    static func visionLabelToRussianTags(_ identifier: String) -> [String] {
+        let key = identifier.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return [] }
+        let clean = key.replacingOccurrences(of: "_", with: " ")
+        var result: [String] = [clean]
+        let mapping: [(String, [String])] = [
+            ("cat", ["кот", "котик", "кошка", "мем"]),
+            ("dog", ["собака", "пес", "песик", "мем"]),
+            ("person", ["человек", "лицо", "парень", "девушка", "чел"]),
+            ("face", ["лицо", "эмоция", "рофл"]),
+            ("cartoon", ["мульт", "аниме", "арт", "персонаж"]),
+            ("anime", ["аниме", "тян", "кун"]),
+            ("car", ["машина", "тачка", "авто"]),
+            ("food", ["еда", "вкусно", "жрать"]),
+            ("fire", ["огонь", "горит", "краш", "имба"]),
+            ("flower", ["цветы", "цветок", "букет"]),
+            ("money", ["деньги", "кеш", "доллар", "бабки", "лут"]),
+            ("computer", ["комп", "пк", "код", "прогер"]),
+            ("weapon", ["оружие", "пушка", "нож", "шутер"]),
+            ("heart", ["сердце", "любовь", "лайк"]),
+            ("smile", ["смайл", "улыбка", "угар", "смех"]),
+            ("text", ["текст", "цитата", "надпись"]),
+            ("screenshot", ["скрин", "скриншот", "мем"]),
+            ("sport", ["спорт", "качалка", "гигачад"]),
+            ("music", ["музыка", "трек", "вайб"]),
+            ("animal", ["животное", "зверь"]),
+            ("bird", ["птица", "голубь", "утка"])
+        ]
+        for (needle, extra) in mapping {
+            if clean.contains(needle) {
+                for tag in extra where !result.contains(tag) {
+                    result.append(tag)
+                }
+            }
+        }
+        return result
+    }
+
+    static func searchStickers(_ entries: [StickerEntry], query: String, limit: Int = 80) -> [StickerEntry] {
+        let normQuery = GGMediaTokCoreLogic.normalizeSearchText(query)
+        let cap = max(1, limit)
+        if normQuery.isEmpty {
+            return Array(entries.sorted {
+                if $0.usageCount != $1.usageCount { return $0.usageCount > $1.usageCount }
+                return $0.addedAt > $1.addedAt
+            }.prefix(cap))
+        }
+
+        let tokens = normQuery.components(separatedBy: " ").filter { !$0.isEmpty }
+        guard !tokens.isEmpty else {
+            return Array(entries.prefix(cap))
+        }
+        let tokenVariants: [[String]] = tokens.map { GGMediaTokCoreLogic.ruEnTranslitVariants($0) }
+
+        var scored: [(entry: StickerEntry, score: Int)] = []
+        scored.reserveCapacity(min(entries.count, cap * 2))
+
+        for entry in entries {
+            let joinedTags = GGMediaTokCoreLogic.normalizeSearchText(entry.tags.joined(separator: " "))
+            let joinedVision = GGMediaTokCoreLogic.normalizeSearchText(entry.visionLabels.joined(separator: " "))
+            let normOcr = GGMediaTokCoreLogic.normalizeSearchText(entry.ocrText)
+            let normFile = GGMediaTokCoreLogic.normalizeSearchText(entry.fileName)
+
+            var totalScore = 0
+            var matchedAllTokens = true
+
+            for variants in tokenVariants {
+                var bestTokenScore = 0
+                for variant in variants where !variant.isEmpty {
+                    if entry.tags.contains(where: { GGMediaTokCoreLogic.normalizeSearchText($0) == variant }) {
+                        bestTokenScore = max(bestTokenScore, 120)
+                    } else if joinedTags.contains(variant) {
+                        bestTokenScore = max(bestTokenScore, 90)
+                    }
+                    if normOcr.contains(variant) {
+                        bestTokenScore = max(bestTokenScore, 75)
+                    }
+                    if joinedVision.contains(variant) {
+                        bestTokenScore = max(bestTokenScore, 55)
+                    }
+                    if normFile.contains(variant) {
+                        bestTokenScore = max(bestTokenScore, 40)
+                    }
+                }
+                if bestTokenScore == 0 {
+                    matchedAllTokens = false
+                    break
+                }
+                totalScore += bestTokenScore
+            }
+
+            if matchedAllTokens {
+                totalScore += min(entry.usageCount, 50)
+                scored.append((entry, totalScore))
+            }
+        }
+
+        scored.sort {
+            if $0.score != $1.score { return $0.score > $1.score }
+            if $0.entry.usageCount != $1.entry.usageCount { return $0.entry.usageCount > $1.entry.usageCount }
+            return $0.entry.addedAt > $1.entry.addedAt
+        }
+        return Array(scored.prefix(cap).map { $0.entry })
+    }
+
+    // MARK: - 9. Malicious Document / APK / RLO Trojan Inspector
+
+    struct DocumentThreat: Equatable {
+        let isCritical: Bool
+        let reason: String
+    }
+
+    private static let dangerousDocExtensions: Set<String> = [
+        "apk", "exe", "scr", "bat", "cmd", "vbs", "vbe", "ps1",
+        "msi", "hta", "lnk", "jar", "com", "pif", "reg", "mobileconfig", "ipa"
+    ]
+
+    static func inspectIncomingDocument(fileName: String, mimeType: String) -> DocumentThreat? {
+        // Check BiDi / Right-to-Left Override spoofing characters (e.g., "photo_gnp.exe")
+        for scalar in fileName.unicodeScalars {
+            let v = scalar.value
+            if (v >= 0x202A && v <= 0x202E) || (v >= 0x2066 && v <= 0x2069) {
+                return DocumentThreat(
+                    isCritical: true,
+                    reason: "Подмена расширения скрытыми символами RLO/BiDi!"
+                )
+            }
+        }
+
+        let lowerName = fileName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let lowerMime = mimeType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        if !lowerName.isEmpty {
+            let parts = lowerName.split(separator: ".").map { String($0) }
+            if let lastExt = parts.last, parts.count >= 2, GGMediaTokCoreLogic.dangerousDocExtensions.contains(lastExt) {
+                if parts.count >= 3 {
+                    let prevExt = parts[parts.count - 2]
+                    if ["jpg", "jpeg", "png", "gif", "webp", "pdf", "doc", "docx", "txt", "mp4", "mp3", "zip", "rar"].contains(prevExt) {
+                        return DocumentThreat(
+                            isCritical: true,
+                            reason: "Двойное расширение .\((prevExt)).\(lastExt) — возможен троян/маскировка!"
+                        )
+                    }
+                }
+                if lastExt == "apk" {
+                    return DocumentThreat(isCritical: true, reason: "Android APK-файл — проверяйте источник перед передачей!")
+                }
+                if lastExt == "mobileconfig" {
+                    return DocumentThreat(isCritical: true, reason: "Профиль конфигурации iOS (.mobileconfig) — может менять DNS/VPN/сертификаты!")
+                }
+                if ["exe", "scr", "bat", "cmd", "vbs", "ps1", "hta", "msi"].contains(lastExt) {
+                    return DocumentThreat(isCritical: true, reason: "Исполняемый файл (.\(lastExt)) — опасен для Windows/ПК!")
+                }
+                return DocumentThreat(isCritical: false, reason: "Установочный / скриптовый файл (.\(lastExt))")
+            }
+        }
+
+        if lowerMime == "application/vnd.android.package-archive" {
+            return DocumentThreat(isCritical: true, reason: "Android APK-пакет — проверяйте источник!")
+        }
+        if lowerMime == "application/x-msdownload" || lowerMime == "application/x-dosexec" {
+            return DocumentThreat(isCritical: true, reason: "Исполняемый Windows EXE/DLL-файл!")
+        }
+        if lowerMime == "application/x-apple-aspen-config" {
+            return DocumentThreat(isCritical: true, reason: "Профиль конфигурации iOS (.mobileconfig)!")
+        }
+        return nil
+    }
+
+    // MARK: - 10. Chat Streaks Engine (Огоньки + Заморозка)
+
+    struct StreakRecord: Codable, Equatable {
+        var currentStreak: Int
+        var bestStreak: Int
+        var lastDayKey: String
+        var freezesRemaining: Int
+        var freezeMonthKey: String
+        var totalMessages: Int
+    }
+
+    private static func utcCalendar() -> Calendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        return cal
+    }
+
+    private static func parseDayKey(_ dayKey: String) -> Date? {
+        let comps = dayKey.split(separator: "-")
+        guard comps.count == 3,
+              let y = Int(comps[0]),
+              let m = Int(comps[1]),
+              let d = Int(comps[2]),
+              y >= 1970, (1 ... 12).contains(m), (1 ... 31).contains(d) else {
+            return nil
+        }
+        var dc = DateComponents()
+        dc.calendar = GGMediaTokCoreLogic.utcCalendar()
+        dc.timeZone = TimeZone(secondsFromGMT: 0)
+        dc.year = y
+        dc.month = m
+        dc.day = d
+        return dc.date
+    }
+
+    static func dayDiffBetween(oldDayKey: String, newDayKey: String) -> Int? {
+        guard let d1 = GGMediaTokCoreLogic.parseDayKey(oldDayKey),
+              let d2 = GGMediaTokCoreLogic.parseDayKey(newDayKey) else {
+            return nil
+        }
+        return GGMediaTokCoreLogic.utcCalendar().dateComponents([.day], from: d1, to: d2).day
+    }
+
+    static func applyStreakActivity(
+        record: StreakRecord?,
+        dayKey: String,
+        monthKey: String
+    ) -> (updated: StreakRecord, usedFreeze: Bool, milestoneReached: Int?) {
+        guard var current = record else {
+            let fresh = StreakRecord(
+                currentStreak: 1,
+                bestStreak: 1,
+                lastDayKey: dayKey,
+                freezesRemaining: 2,
+                freezeMonthKey: monthKey,
+                totalMessages: 1
+            )
+            return (fresh, false, nil)
+        }
+
+        if current.freezeMonthKey != monthKey {
+            current.freezeMonthKey = monthKey
+            current.freezesRemaining = 2
+        }
+
+        if current.lastDayKey == dayKey {
+            current.totalMessages += 1
+            return (current, false, nil)
+        }
+
+        var usedFreeze = false
+        var milestone: Int?
+        let diff = GGMediaTokCoreLogic.dayDiffBetween(oldDayKey: current.lastDayKey, newDayKey: dayKey) ?? 999
+
+        if diff < 0 {
+            // Do not regress or overwrite newer local state with stale clock timestamp
+            return (current, false, nil)
+        } else if diff == 1 {
+            current.currentStreak += 1
+        } else if diff == 2 && current.freezesRemaining > 0 {
+            current.freezesRemaining -= 1
+            current.currentStreak += 1
+            usedFreeze = true
+        } else {
+            current.currentStreak = 1
+        }
+
+        if current.currentStreak > current.bestStreak {
+            current.bestStreak = current.currentStreak
+        }
+        current.lastDayKey = dayKey
+        current.totalMessages += 1
+
+        let milestones = [7, 30, 100, 365]
+        if milestones.contains(current.currentStreak) {
+            milestone = current.currentStreak
+        }
+        return (current, usedFreeze, milestone)
+    }
+
+    static func streakTierBadge(days: Int) -> String {
+        if days >= 365 { return "🌈" }
+        if days >= 100 { return "🟣" }
+        if days >= 30 { return "🔵" }
+        if days >= 7 { return "🟠" }
+        return "🔥"
+    }
+
+    // MARK: - 11. Info-Card (.card) Command Parser
+
+    struct CardPayload: Equatable {
+        let title: String
+        let subtitle: String
+        let lines: [String]
+    }
+
+    static func parseCardCommand(_ text: String) -> CardPayload? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix(".card ") else { return nil }
+        let body = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return nil }
+        let rawParts = body.components(separatedBy: "|").map {
+            String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
+        }
+        let nonEmpty = rawParts.filter { !$0.isEmpty }
+        guard let title = nonEmpty.first, !title.isEmpty else { return nil }
+        let subtitle = nonEmpty.count >= 2 ? nonEmpty[1] : ""
+        let lines = nonEmpty.count >= 3 ? Array(nonEmpty.dropFirst(2).prefix(6)) : []
+        return CardPayload(title: title, subtitle: subtitle, lines: lines)
+    }
+
+    // MARK: - 12. Live Music (ListenBrainz / Last.fm) & Connections Parsers
+
+    struct LiveMusicTrack: Equatable {
+        let artist: String
+        let track: String
+        let isLive: Bool
+    }
+
+    static func parseListenBrainzJson(_ data: Data) -> LiveMusicTrack? {
+        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let payload = root["payload"] as? [String: Any],
+              let listens = payload["listens"] as? [[String: Any]],
+              let first = listens.first,
+              let meta = first["track_metadata"] as? [String: Any] else {
+            return nil
+        }
+        let artist = (meta["artist_name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let track = (meta["track_name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !track.isEmpty else { return nil }
+        let playingNow = (payload["playing_now"] as? Bool ?? false) || (first["playing_now"] as? Bool ?? false)
+        return LiveMusicTrack(artist: artist, track: track, isLive: playingNow)
+    }
+
+    static func parseLastFmHtml(_ html: String) -> LiveMusicTrack? {
+        guard let tbodyStart = html.range(of: "<tr"),
+              let rowEnd = html.range(of: "</tr>", range: tbodyStart.lowerBound ..< html.endIndex) else {
+            return nil
+        }
+        let row = String(html[tbodyStart.lowerBound ..< rowEnd.upperBound])
+        let isLive = row.contains("chartlist-now-scrobbling") || row.lowercased().contains("scrobbling now")
+
+        func extractClassText(_ className: String) -> String {
+            guard let marker = row.range(of: className),
+                  let tagClose = row.range(of: ">", range: marker.upperBound ..< row.endIndex),
+                  let aStart = row.range(of: "<a", range: tagClose.upperBound ..< row.endIndex),
+                  let aClose = row.range(of: ">", range: aStart.upperBound ..< row.endIndex),
+                  let aEnd = row.range(of: "</a>", range: aClose.upperBound ..< row.endIndex) else {
+                return ""
+            }
+            return GGMediaTokCoreLogic.decodeBasicHtmlEntities(String(row[aClose.upperBound ..< aEnd.lowerBound]))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let track = extractClassText("chartlist-name")
+        let artist = extractClassText("chartlist-artist")
+        guard !track.isEmpty else { return nil }
+        return LiveMusicTrack(artist: artist, track: track, isLive: isLive)
+    }
+
+    private static func decodeBasicHtmlEntities(_ input: String) -> String {
+        return input
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&#x27;", with: "'")
+    }
+
+    static func normalizeConnection(platform: String, raw: String) -> (label: String, handle: String, url: URL)? {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty, !s.contains(".."), !s.contains("\\") else { return nil }
+        let p = platform.lowercased()
+
+        if p == "discord" {
+            let clean = s.hasPrefix("@") ? String(s.dropFirst()) : s
+            guard !clean.isEmpty, clean.count <= 48, !clean.contains("@"),
+                  clean.allSatisfy({ $0.isASCII && !$0.isWhitespace }) else {
+                return nil
+            }
+            guard let u = URL(string: "https://discord.com/users/\(clean)") else { return nil }
+            return ("Discord", clean, u)
+        }
+
+        if let schemeRange = s.range(of: "://") {
+            let scheme = s[..<schemeRange.lowerBound].lowercased()
+            guard scheme == "http" || scheme == "https" else { return nil }
+            if let slashIdx = s[schemeRange.upperBound...].lastIndex(of: "/") {
+                let tail = String(s[s.index(after: slashIdx)...])
+                if !tail.isEmpty { s = tail }
+            }
+        }
+        if let qIdx = s.firstIndex(of: "?") { s = String(s[..<qIdx]) }
+        if let fIdx = s.firstIndex(of: "#") { s = String(s[..<fIdx]) }
+        while s.hasSuffix("/") { s.removeLast() }
+        if s.hasPrefix("@") { s.removeFirst() }
+        guard !s.isEmpty, s.count <= 64, !s.contains("@"), !s.contains("/") else { return nil }
+
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-."))
+        guard s.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+
+        switch p {
+        case "twitch":
+            guard let u = URL(string: "https://www.twitch.tv/\(s)") else { return nil }
+            return ("Twitch", s, u)
+        case "github":
+            guard let u = URL(string: "https://github.com/\(s)") else { return nil }
+            return ("GitHub", s, u)
+        case "youtube":
+            guard let u = URL(string: "https://www.youtube.com/@\(s)") else { return nil }
+            return ("YouTube", "@\(s)", u)
+        case "tiktok":
+            guard let u = URL(string: "https://www.tiktok.com/@\(s)") else { return nil }
+            return ("TikTok", "@\(s)", u)
+        case "kick":
+            guard let u = URL(string: "https://kick.com/\(s)") else { return nil }
+            return ("Kick", s, u)
+        default:
+            return nil
+        }
+    }
+
+    // MARK: - 13. LAN Wi-Fi Uploader Helpers
+
+    static func sanitizeUploadFileName(_ raw: String) -> String {
+        let base = raw
+            .replacingOccurrences(of: "\\", with: "/")
+            .split(separator: "/")
+            .last
+            .map { String($0) } ?? "upload"
+        let replaced = base.replacingOccurrences(of: "..", with: "_")
+        let safeScalars = replaced.unicodeScalars.filter { scalar in
+            if scalar.value < 32 || scalar.value == 127 { return false }
+            return !CharacterSet(charactersIn: "/\\:*?\"<>|\0").contains(scalar)
+        }
+        let cleaned = String(String.UnicodeScalarView(safeScalars)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.isEmpty || cleaned == "." || cleaned == ".." {
+            return "file_\(Int(Date().timeIntervalSince1970))"
+        }
+        return String(cleaned.prefix(80))
+    }
+
+    static func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+        let bytesA = Array(a.utf8)
+        let bytesB = Array(b.utf8)
+        guard bytesA.count == bytesB.count else { return false }
+        var diff: UInt8 = 0
+        for i in 0 ..< bytesA.count {
+            diff |= bytesA[i] ^ bytesB[i]
+        }
+        return diff == 0
+    }
 }

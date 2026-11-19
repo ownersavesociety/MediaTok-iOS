@@ -500,8 +500,8 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
                 dateColor = arguments.presentationData.theme.theme.chat.message.outgoing.secondaryTextColor
                 outgoingStatus = status
                 leftInset = 5.0
-                // GHOST: custom checkmark colors, read and unread apart (appearance.checkmarks.*)
-                let ggChecks = ggCustomCheckImages(status: status, size: checkSize)
+                // GHOST: custom checkmark colors and MediaTok styles, read and unread apart
+                let ggChecks = ggCustomCheckImages(status: status, size: checkSize, fallbackColor: arguments.presentationData.theme.theme.chat.message.outgoingCheckColor)
                 loadedCheckFullImage = ggChecks?.full ?? PresentationResourcesChat.chatOutgoingFullCheck(arguments.presentationData.theme.theme, size: checkSize)
                 loadedCheckPartialImage = ggChecks?.partial ?? PresentationResourcesChat.chatOutgoingPartialCheck(arguments.presentationData.theme.theme, size: checkSize)
                 clockFrameImage = graphics.clockBubbleOutgoingFrameImage
@@ -1663,21 +1663,72 @@ private func ggStatusIconTemplateImage(_ icon: GGStatusIcon, color: UIColor, hei
     return image
 }
 
-// GHOST: checkmarks of the user's colors: both checks in the read color once read, the single check
-// in the unread color before that. nil = the theme's checkmarks.
-private func ggCustomCheckImages(status: ChatMessageDateAndStatusOutgoingType, size: CGFloat) -> (full: UIImage?, partial: UIImage?)? {
+private let ggStyledCheckLock = NSLock()
+private var ggStyledCheckCache: [String: UIImage] = [:]
+
+private func ggRenderStyledCheck(style: String, partial: Bool, color: UIColor, size: CGFloat) -> UIImage? {
+    let key = "\(style)_\(partial ? 1 : 0)_\(Int(size.rounded()))_\(color.argb)"
+    ggStyledCheckLock.lock()
+    if let cached = ggStyledCheckCache[key] {
+        ggStyledCheckLock.unlock()
+        return cached
+    }
+    ggStyledCheckLock.unlock()
+
+    let symbolName: String
+    switch style {
+    case "bolt": symbolName = partial ? "bolt" : "bolt.fill"
+    case "fire": symbolName = partial ? "flame" : "flame.fill"
+    case "diamond": symbolName = partial ? "diamond" : "diamond.fill"
+    case "eyes": symbolName = partial ? "eye" : "eye.fill"
+    case "heart": symbolName = partial ? "heart" : "heart.fill"
+    case "star": symbolName = partial ? "star" : "star.fill"
+    case "minimal": symbolName = partial ? "circle" : "circle.fill"
+    default: return nil
+    }
+
+    let side = max(10.0, size)
+    let box = CGSize(width: side, height: side)
+    let cfg = UIImage.SymbolConfiguration(pointSize: side * 0.85, weight: .bold)
+    guard let sym = UIImage(systemName: symbolName, withConfiguration: cfg)?.withTintColor(color, renderingMode: .alwaysOriginal) else {
+        return nil
+    }
+    let fmt = UIGraphicsImageRendererFormat()
+    fmt.opaque = false
+    let rendered = UIGraphicsImageRenderer(size: box, format: fmt).image { _ in
+        let symAspect = sym.size.width / max(1.0, sym.size.height)
+        let drawW = symAspect >= 1.0 ? side : side * symAspect
+        let drawH = symAspect >= 1.0 ? side / symAspect : side
+        sym.draw(in: CGRect(x: (side - drawW) / 2.0, y: (side - drawH) / 2.0, width: drawW, height: drawH))
+    }
+
+    ggStyledCheckLock.lock()
+    if ggStyledCheckCache.count > 256 {
+        ggStyledCheckCache.removeAll()
+    }
+    ggStyledCheckCache[key] = rendered
+    ggStyledCheckLock.unlock()
+    return rendered
+}
+
+// GHOST: checkmarks of the user's colors and MediaTok checkmark styles. nil = the theme's checkmarks.
+private func ggCustomCheckImages(status: ChatMessageDateAndStatusOutgoingType, size: CGFloat, fallbackColor: UIColor) -> (full: UIImage?, partial: UIImage?)? {
     let snapshot = GGAppearanceSnapshot.current
-    if snapshot.readCheckRGB == nil && snapshot.unreadCheckRGB == nil {
+    let style = UserDefaults.standard.string(forKey: "mediatok.checkmarks.style.v1") ?? "default"
+    let hasCustomStyle = !style.isEmpty && style != "default"
+    if !hasCustomStyle && snapshot.readCheckRGB == nil && snapshot.unreadCheckRGB == nil {
         return nil
     }
     guard case let .Sent(read) = status else {
         return nil
     }
-    let rgb: UInt32?
-    if read {
-        rgb = snapshot.readCheckRGB
-    } else {
-        rgb = snapshot.unreadCheckRGB
+    let rgb: UInt32? = read ? snapshot.readCheckRGB : snapshot.unreadCheckRGB
+    let resolvedColor = rgb.map { UIColor(rgb: $0) } ?? fallbackColor
+    if hasCustomStyle {
+        return (
+            ggRenderStyledCheck(style: style, partial: false, color: resolvedColor, size: size),
+            ggRenderStyledCheck(style: style, partial: true, color: resolvedColor, size: size)
+        )
     }
     guard let rgb else {
         return nil

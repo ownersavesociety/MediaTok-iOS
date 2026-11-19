@@ -20,6 +20,20 @@ import GGSettingsUI
 
 // MARK: - Data Model
 
+public struct GGProfileTrack: Codable, Equatable {
+    public var id: String
+    public var title: String
+    public var fileName: String
+    public var url: String
+
+    public init(id: String = UUID().uuidString, title: String, fileName: String = "", url: String = "") {
+        self.id = id
+        self.title = title
+        self.fileName = fileName
+        self.url = url
+    }
+}
+
 public struct GGDiscordProfileData: Codable, Equatable {
     public var bannerFileName: String
     public var bannerUrl: String
@@ -31,6 +45,20 @@ public struct GGDiscordProfileData: Codable, Equatable {
     public var musicFileName: String
     public var musicUrl: String
     public var musicTitle: String
+    public var musicPlaylist: [GGProfileTrack]
+    public var voiceBioFileName: String
+    public var voiceBioUrl: String
+    public var musicServiceKind: String
+    public var musicServiceUser: String
+    public var twitchInput: String
+    public var githubInput: String
+    public var youtubeInput: String
+    public var tiktokInput: String
+    public var kickInput: String
+    public var discordTag: String
+    public var nitroThemeId: String
+    public var duoUsername: String
+    public var duoLabel: String
     public var updatedAt: Int64
 
     private enum CodingKeys: String, CodingKey {
@@ -44,6 +72,20 @@ public struct GGDiscordProfileData: Codable, Equatable {
         case musicFileName
         case musicUrl
         case musicTitle
+        case musicPlaylist
+        case voiceBioFileName
+        case voiceBioUrl
+        case musicServiceKind
+        case musicServiceUser
+        case twitchInput
+        case githubInput
+        case youtubeInput
+        case tiktokInput
+        case kickInput
+        case discordTag
+        case nitroThemeId
+        case duoUsername
+        case duoLabel
         case updatedAt
     }
 
@@ -58,6 +100,20 @@ public struct GGDiscordProfileData: Codable, Equatable {
         musicFileName: String = "",
         musicUrl: String = "",
         musicTitle: String = "",
+        musicPlaylist: [GGProfileTrack] = [],
+        voiceBioFileName: String = "",
+        voiceBioUrl: String = "",
+        musicServiceKind: String = "none",
+        musicServiceUser: String = "",
+        twitchInput: String = "",
+        githubInput: String = "",
+        youtubeInput: String = "",
+        tiktokInput: String = "",
+        kickInput: String = "",
+        discordTag: String = "",
+        nitroThemeId: String = "none",
+        duoUsername: String = "",
+        duoLabel: String = "",
         updatedAt: Int64 = 0
     ) {
         self.bannerFileName = bannerFileName
@@ -70,6 +126,20 @@ public struct GGDiscordProfileData: Codable, Equatable {
         self.musicFileName = musicFileName
         self.musicUrl = musicUrl
         self.musicTitle = musicTitle
+        self.musicPlaylist = musicPlaylist
+        self.voiceBioFileName = voiceBioFileName
+        self.voiceBioUrl = voiceBioUrl
+        self.musicServiceKind = musicServiceKind
+        self.musicServiceUser = musicServiceUser
+        self.twitchInput = twitchInput
+        self.githubInput = githubInput
+        self.youtubeInput = youtubeInput
+        self.tiktokInput = tiktokInput
+        self.kickInput = kickInput
+        self.discordTag = discordTag
+        self.nitroThemeId = nitroThemeId
+        self.duoUsername = duoUsername
+        self.duoLabel = duoLabel
         self.updatedAt = updatedAt
     }
 
@@ -85,7 +155,36 @@ public struct GGDiscordProfileData: Codable, Equatable {
         self.musicFileName = try c.decodeIfPresent(String.self, forKey: .musicFileName) ?? ""
         self.musicUrl = try c.decodeIfPresent(String.self, forKey: .musicUrl) ?? ""
         self.musicTitle = try c.decodeIfPresent(String.self, forKey: .musicTitle) ?? ""
+        self.musicPlaylist = try c.decodeIfPresent([GGProfileTrack].self, forKey: .musicPlaylist) ?? []
+        self.voiceBioFileName = try c.decodeIfPresent(String.self, forKey: .voiceBioFileName) ?? ""
+        self.voiceBioUrl = try c.decodeIfPresent(String.self, forKey: .voiceBioUrl) ?? ""
+        self.musicServiceKind = try c.decodeIfPresent(String.self, forKey: .musicServiceKind) ?? "none"
+        self.musicServiceUser = try c.decodeIfPresent(String.self, forKey: .musicServiceUser) ?? ""
+        self.twitchInput = try c.decodeIfPresent(String.self, forKey: .twitchInput) ?? ""
+        self.githubInput = try c.decodeIfPresent(String.self, forKey: .githubInput) ?? ""
+        self.youtubeInput = try c.decodeIfPresent(String.self, forKey: .youtubeInput) ?? ""
+        self.tiktokInput = try c.decodeIfPresent(String.self, forKey: .tiktokInput) ?? ""
+        self.kickInput = try c.decodeIfPresent(String.self, forKey: .kickInput) ?? ""
+        self.discordTag = try c.decodeIfPresent(String.self, forKey: .discordTag) ?? ""
+        self.nitroThemeId = try c.decodeIfPresent(String.self, forKey: .nitroThemeId) ?? "none"
+        self.duoUsername = try c.decodeIfPresent(String.self, forKey: .duoUsername) ?? ""
+        self.duoLabel = try c.decodeIfPresent(String.self, forKey: .duoLabel) ?? ""
         self.updatedAt = try c.decodeIfPresent(Int64.self, forKey: .updatedAt) ?? 0
+    }
+
+    public var effectivePlaylist: [GGProfileTrack] {
+        if !self.musicPlaylist.isEmpty {
+            return self.musicPlaylist
+        }
+        if !self.musicFileName.isEmpty || !self.musicUrl.isEmpty {
+            return [GGProfileTrack(
+                id: "legacy_single",
+                title: self.musicTitle.isEmpty ? "Трек профиля" : self.musicTitle,
+                fileName: self.musicFileName,
+                url: self.musicUrl
+            )]
+        }
+        return []
     }
 
     public var isEmpty: Bool {
@@ -93,16 +192,28 @@ public struct GGDiscordProfileData: Codable, Equatable {
             && self.bannerUrl.isEmpty
             && (self.effectId.isEmpty || self.effectId == "none")
             && (self.avatarFrameId.isEmpty || self.avatarFrameId == "none")
+            && (self.nitroThemeId.isEmpty || self.nitroThemeId == "none")
             && self.customStatus.isEmpty
             && self.steamInput.isEmpty
             && self.robloxInput.isEmpty
             && self.musicFileName.isEmpty
             && self.musicUrl.isEmpty
             && self.musicTitle.isEmpty
+            && self.musicPlaylist.isEmpty
+            && self.voiceBioFileName.isEmpty
+            && self.voiceBioUrl.isEmpty
+            && (self.musicServiceKind.isEmpty || self.musicServiceKind == "none" || self.musicServiceUser.isEmpty)
+            && self.twitchInput.isEmpty
+            && self.githubInput.isEmpty
+            && self.youtubeInput.isEmpty
+            && self.tiktokInput.isEmpty
+            && self.kickInput.isEmpty
+            && self.discordTag.isEmpty
+            && self.duoUsername.isEmpty
     }
 }
 
-// MARK: - Full-Track Profile Music Player
+// MARK: - Infinite Playlist & Voice Bio Player
 
 final class GGProfileMusicPlayer {
     static let shared = GGProfileMusicPlayer()
@@ -110,22 +221,72 @@ final class GGProfileMusicPlayer {
     private var player: AVPlayer?
     private var playingPeerKey: String?
     private var endObserver: NSObjectProtocol?
+    private var queue: [GGProfileTrack] = []
+    private var currentIndex: Int = 0
+    private var isShuffle = false
+    private var stateCallback: (() -> Void)?
+
+    private var voicePlayer: AVPlayer?
+    private var voicePeerKey: String?
+    private var voiceEndObserver: NSObjectProtocol?
+    private var voiceCallback: (() -> Void)?
 
     private init() {}
+
+    var shuffleEnabled: Bool {
+        return self.isShuffle
+    }
 
     func isPlaying(peerId: PeerId) -> Bool {
         let key = GGDiscordProfileStore.keyString(for: peerId)
         return self.playingPeerKey == key && (self.player?.rate ?? 0.0) > 0.0
     }
 
+    func isPlayingVoiceBio(peerId: PeerId) -> Bool {
+        let key = GGDiscordProfileStore.keyString(for: peerId)
+        return self.voicePeerKey == key && (self.voicePlayer?.rate ?? 0.0) > 0.0
+    }
+
+    func currentTrackSummary(peerId: PeerId, playlist: [GGProfileTrack]) -> (title: String, positionText: String) {
+        let key = GGDiscordProfileStore.keyString(for: peerId)
+        if self.playingPeerKey == key,
+           !self.queue.isEmpty,
+           self.currentIndex >= 0,
+           self.currentIndex < self.queue.count {
+            let track = self.queue[self.currentIndex]
+            return (track.title, "\(self.currentIndex + 1)/\(self.queue.count)")
+        }
+        if let first = playlist.first {
+            let countStr = playlist.count > 1 ? "1/\(playlist.count)" : "Фулл"
+            return (first.title, countStr)
+        }
+        return ("Трек профиля", "")
+    }
+
     func stop() {
         self.player?.pause()
         self.player = nil
         self.playingPeerKey = nil
+        self.queue = []
+        self.currentIndex = 0
         if let obs = self.endObserver {
             NotificationCenter.default.removeObserver(obs)
             self.endObserver = nil
         }
+        self.stateCallback = nil
+    }
+
+    func stopVoiceBio() {
+        self.voicePlayer?.pause()
+        self.voicePlayer = nil
+        self.voicePeerKey = nil
+        if let obs = self.voiceEndObserver {
+            NotificationCenter.default.removeObserver(obs)
+            self.voiceEndObserver = nil
+        }
+        let cb = self.voiceCallback
+        self.voiceCallback = nil
+        cb?()
     }
 
     func toggle(peerId: PeerId, profile: GGDiscordProfileData, onStateChanged: (() -> Void)?) {
@@ -135,26 +296,135 @@ final class GGProfileMusicPlayer {
             onStateChanged?()
             return
         }
-        let targetURL: URL?
-        if let local = GGDiscordProfileStore.shared.musicFileURL(for: profile) {
-            targetURL = local
-        } else if let remote = GGMediaTokCoreLogic.isAllowedMediaURL(profile.musicUrl) {
-            targetURL = remote
-        } else {
-            targetURL = nil
+        let playlist = profile.effectivePlaylist
+        guard !playlist.isEmpty else { return }
+        self.stopVoiceBio()
+        self.stop()
+        self.queue = playlist
+        self.playingPeerKey = key
+        self.currentIndex = self.isShuffle ? Int.random(in: 0 ..< playlist.count) : 0
+        self.stateCallback = onStateChanged
+        self.playCurrentItem()
+    }
+
+    func next(peerId: PeerId, profile: GGDiscordProfileData, onStateChanged: (() -> Void)?) {
+        let key = GGDiscordProfileStore.keyString(for: peerId)
+        let playlist = profile.effectivePlaylist
+        guard !playlist.isEmpty else { return }
+        if self.playingPeerKey != key || self.queue.isEmpty {
+            self.toggle(peerId: peerId, profile: profile, onStateChanged: onStateChanged)
+            return
         }
-        guard let url = targetURL else { return }
+        self.queue = playlist
+        self.stateCallback = onStateChanged ?? self.stateCallback
+        if self.isShuffle && self.queue.count > 1 {
+            var nextIdx = Int.random(in: 0 ..< self.queue.count)
+            if nextIdx == self.currentIndex {
+                nextIdx = (self.currentIndex + 1) % self.queue.count
+            }
+            self.currentIndex = nextIdx
+        } else {
+            self.currentIndex = (self.currentIndex + 1) % self.queue.count
+        }
+        self.playCurrentItem()
+    }
+
+    func previous(peerId: PeerId, profile: GGDiscordProfileData, onStateChanged: (() -> Void)?) {
+        let key = GGDiscordProfileStore.keyString(for: peerId)
+        let playlist = profile.effectivePlaylist
+        guard !playlist.isEmpty else { return }
+        if self.playingPeerKey != key || self.queue.isEmpty {
+            self.toggle(peerId: peerId, profile: profile, onStateChanged: onStateChanged)
+            return
+        }
+        self.queue = playlist
+        self.stateCallback = onStateChanged ?? self.stateCallback
+        self.currentIndex = (self.currentIndex - 1 + self.queue.count) % self.queue.count
+        self.playCurrentItem()
+    }
+
+    func toggleShuffle() {
+        self.isShuffle.toggle()
+        self.stateCallback?()
+    }
+
+    private func playCurrentItem() {
+        guard !self.queue.isEmpty else {
+            self.stop()
+            return
+        }
+        if self.currentIndex < 0 || self.currentIndex >= self.queue.count {
+            self.currentIndex = 0
+        }
+        let track = self.queue[self.currentIndex]
+        let url: URL?
+        if let local = GGDiscordProfileStore.shared.trackFileURL(track) {
+            url = local
+        } else if let remote = GGMediaTokCoreLogic.isAllowedMediaURL(track.url) {
+            url = remote
+        } else {
+            url = nil
+        }
+        guard let playableUrl = url else {
+            self.stop()
+            self.stateCallback?()
+            return
+        }
+        if let obs = self.endObserver {
+            NotificationCenter.default.removeObserver(obs)
+            self.endObserver = nil
+        }
+        self.player?.pause()
+        let _ = try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
+        let _ = try? AVAudioSession.sharedInstance().setActive(true)
+        let item = AVPlayerItem(url: playableUrl)
+        let av = AVPlayer(playerItem: item)
+        self.player = av
+        self.endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+            guard let strongSelf = self, !strongSelf.queue.isEmpty else { return }
+            if strongSelf.isShuffle && strongSelf.queue.count > 1 {
+                var nextIdx = Int.random(in: 0 ..< strongSelf.queue.count)
+                if nextIdx == strongSelf.currentIndex {
+                    nextIdx = (strongSelf.currentIndex + 1) % strongSelf.queue.count
+                }
+                strongSelf.currentIndex = nextIdx
+            } else {
+                strongSelf.currentIndex = (strongSelf.currentIndex + 1) % strongSelf.queue.count
+            }
+            strongSelf.playCurrentItem()
+        }
+        av.play()
+        self.stateCallback?()
+    }
+
+    func toggleVoiceBio(peerId: PeerId, profile: GGDiscordProfileData, onStateChanged: (() -> Void)?) {
+        let key = GGDiscordProfileStore.keyString(for: peerId)
+        if self.isPlayingVoiceBio(peerId: peerId) {
+            self.stopVoiceBio()
+            onStateChanged?()
+            return
+        }
+        let targetUrl: URL?
+        if let local = GGDiscordProfileStore.shared.voiceBioFileURL(for: profile) {
+            targetUrl = local
+        } else if let remote = GGMediaTokCoreLogic.isAllowedMediaURL(profile.voiceBioUrl) {
+            targetUrl = remote
+        } else {
+            targetUrl = nil
+        }
+        guard let url = targetUrl else { return }
 
         self.stop()
+        self.stopVoiceBio()
         let _ = try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
         let _ = try? AVAudioSession.sharedInstance().setActive(true)
         let item = AVPlayerItem(url: url)
         let av = AVPlayer(playerItem: item)
-        self.player = av
-        self.playingPeerKey = key
-        self.endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-            self?.stop()
-            onStateChanged?()
+        self.voicePlayer = av
+        self.voicePeerKey = key
+        self.voiceCallback = onStateChanged
+        self.voiceEndObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+            self?.stopVoiceBio()
         }
         av.play()
         onStateChanged?()
@@ -189,6 +459,22 @@ final class GGDiscordProfileStore {
         ("obsidian", "Обсидиан 🖤", [UIColor(rgb: 0x6A00F4), UIColor(rgb: 0xE10098), UIColor(rgb: 0x1A1A2E), UIColor(rgb: 0x6A00F4)])
     ]
 
+    static let nitroThemes: [(id: String, title: String, colors: [UIColor])] = [
+        ("none", "Выкл. (стандарт)", []),
+        ("cyber_cyan", "Кибер-Циан 💎", [UIColor(rgb: 0x00F5FF), UIColor(rgb: 0x3A0CA3)]),
+        ("neon_sakura", "Неон Сакура 🌸", [UIColor(rgb: 0xFF4D8D), UIColor(rgb: 0x7209B7)]),
+        ("crimson_gold", "Багрянец и Золото 👑", [UIColor(rgb: 0xFF9F1C), UIColor(rgb: 0x9B002C)]),
+        ("emerald_matrix", "Изумруд Матрицы 💚", [UIColor(rgb: 0x00F5A0), UIColor(rgb: 0x004E64)]),
+        ("royal_violet", "Королевский Неон 🔮", [UIColor(rgb: 0xB5179E), UIColor(rgb: 0x240046)]),
+        ("sunset_fire", "Огненный Закат 🔥", [UIColor(rgb: 0xFF512F), UIColor(rgb: 0x810034)])
+    ]
+
+    static let musicServices: [(id: String, title: String)] = [
+        ("none", "Выкл."),
+        ("lastfm", "Last.fm (Spotify / Яндекс / VK / Apple Music)"),
+        ("listenbrainz", "ListenBrainz (Open Scrobbler)")
+    ]
+
     private let lock = NSLock()
     private let ownPeersDefaultsKey = "mediatok.discord.own_peers.v1"
     private let heartbeatDefaultsKey = "mediatok.discord.last_heartbeat.v1"
@@ -197,6 +483,7 @@ final class GGDiscordProfileStore {
     private var lastSyncCheck: [String: TimeInterval] = [:]
     private let revisionPromise = ValuePromise<Int32>(0, ignoreRepeated: false)
     private var revisionCounter: Int32 = 0
+    var activeAccountPeerId: PeerId?
 
     private init() {}
 
@@ -246,6 +533,10 @@ final class GGDiscordProfileStore {
 
     private func musicDir() -> URL {
         return self.rootDir().appendingPathComponent("discord_music", isDirectory: true)
+    }
+
+    private func voiceBioDir() -> URL {
+        return self.rootDir().appendingPathComponent("discord_voice_bio", isDirectory: true)
     }
 
     private func ensureLoadedLocked() {
@@ -306,6 +597,18 @@ final class GGDiscordProfileStore {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
+    func trackFileURL(_ track: GGProfileTrack) -> URL? {
+        guard !track.fileName.isEmpty else { return nil }
+        let url = self.musicDir().appendingPathComponent(track.fileName)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    func voiceBioFileURL(for profile: GGDiscordProfileData) -> URL? {
+        guard !profile.voiceBioFileName.isEmpty else { return nil }
+        let url = self.voiceBioDir().appendingPathComponent(profile.voiceBioFileName)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     func saveBannerData(_ data: Data, for peerId: PeerId) -> String? {
         let dir = self.bannersDir()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -323,7 +626,8 @@ final class GGDiscordProfileStore {
         let dir = self.musicDir()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let cleanExt = GGMediaTokCoreLogic.sanitizeAudioExtension(ext)
-        let fileName = "track_\(GGDiscordProfileStore.keyString(for: peerId))_\(Int64(Date().timeIntervalSince1970 * 1000.0)).\(cleanExt)"
+        let uid = String(UUID().uuidString.prefix(8))
+        let fileName = "track_\(GGDiscordProfileStore.keyString(for: peerId))_\(Int64(Date().timeIntervalSince1970 * 1000.0))_\(uid).\(cleanExt)"
         let url = dir.appendingPathComponent(fileName)
         do {
             try data.write(to: url, options: [.atomic])
@@ -333,15 +637,77 @@ final class GGDiscordProfileStore {
         return fileName
     }
 
+    func saveVoiceBioData(_ data: Data, ext: String, for peerId: PeerId) -> String? {
+        let dir = self.voiceBioDir()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let cleanExt = GGMediaTokCoreLogic.sanitizeAudioExtension(ext)
+        let fileName = "vbio_\(GGDiscordProfileStore.keyString(for: peerId))_\(Int64(Date().timeIntervalSince1970 * 1000.0)).\(cleanExt)"
+        let url = dir.appendingPathComponent(fileName)
+        do {
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            return nil
+        }
+        return fileName
+    }
+
+    func savePlaylistTrack(data: Data, ext: String, title: String, for peerId: PeerId) -> GGProfileTrack? {
+        guard !data.isEmpty, data.count <= 25 * 1024 * 1024,
+              let fileName = self.saveMusicData(data, ext: ext, for: peerId) else {
+            return nil
+        }
+        let cleanTitle = String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
+        return GGProfileTrack(
+            id: UUID().uuidString,
+            title: cleanTitle.isEmpty ? "Трек профиля" : cleanTitle,
+            fileName: fileName,
+            url: ""
+        )
+    }
+
+    @discardableResult
+    func addUploadedTrackToOwnProfile(data: Data, ext: String, title: String) -> Bool {
+        guard let peerId = self.activeAccountPeerId,
+              let track = self.savePlaylistTrack(data: data, ext: ext, title: title, for: peerId) else {
+            return false
+        }
+        var current = self.profile(for: peerId) ?? GGDiscordProfileData()
+        var tracks = current.effectivePlaylist
+        tracks.append(track)
+        current.musicPlaylist = tracks
+        if current.musicFileName.isEmpty {
+            current.musicFileName = track.fileName
+            current.musicTitle = track.title
+            current.musicUrl = track.url
+        }
+        self.setProfile(current, for: peerId, publishGlobally: true)
+        return true
+    }
+
     func setProfile(_ profile: GGDiscordProfileData, for peerId: PeerId, publishGlobally: Bool) {
         let key = GGDiscordProfileStore.keyString(for: peerId)
         var updated = profile
         updated.updatedAt = Int64(Date().timeIntervalSince1970)
+        if let firstTrack = updated.musicPlaylist.first {
+            updated.musicFileName = firstTrack.fileName
+            updated.musicUrl = firstTrack.url
+            updated.musicTitle = firstTrack.title
+        }
 
         self.lock.lock()
         self.ensureLoadedLocked()
-        let oldBanner = self.entries[key]?.bannerFileName ?? ""
-        let oldMusic = self.entries[key]?.musicFileName ?? ""
+        let prev = self.entries[key]
+        let oldBanner = prev?.bannerFileName ?? ""
+        let oldVoice = prev?.voiceBioFileName ?? ""
+        var oldMusicFiles = Set((prev?.musicPlaylist ?? []).map { $0.fileName }.filter { !$0.isEmpty })
+        if let prevLegacy = prev?.musicFileName, !prevLegacy.isEmpty {
+            oldMusicFiles.insert(prevLegacy)
+        }
+        var keptMusicFiles = Set(updated.musicPlaylist.map { $0.fileName }.filter { !$0.isEmpty })
+        if !updated.musicFileName.isEmpty {
+            keptMusicFiles.insert(updated.musicFileName)
+        }
+
         if updated.isEmpty {
             self.entries.removeValue(forKey: key)
         } else {
@@ -350,8 +716,11 @@ final class GGDiscordProfileStore {
         if !oldBanner.isEmpty && oldBanner != updated.bannerFileName {
             try? FileManager.default.removeItem(at: self.bannersDir().appendingPathComponent(oldBanner))
         }
-        if !oldMusic.isEmpty && oldMusic != updated.musicFileName {
-            try? FileManager.default.removeItem(at: self.musicDir().appendingPathComponent(oldMusic))
+        if !oldVoice.isEmpty && oldVoice != updated.voiceBioFileName {
+            try? FileManager.default.removeItem(at: self.voiceBioDir().appendingPathComponent(oldVoice))
+        }
+        for obsolete in oldMusicFiles where !keptMusicFiles.contains(obsolete) {
+            try? FileManager.default.removeItem(at: self.musicDir().appendingPathComponent(obsolete))
         }
         self.persistLocked()
         self.bumpRevisionLocked()
@@ -366,7 +735,7 @@ final class GGDiscordProfileStore {
         }
     }
 
-    // MARK: - Catbox + ntfy Global Sync (4K Banner + Full Track Music, Hardened)
+    // MARK: - Catbox + ntfy Global Sync (4K Banner + Infinite Playlist + Voice Bio, Hardened)
 
     private static func downloadLimitedData(from url: URL, maxBytes: Int64, completion: @escaping (Data?) -> Void) {
         let req = URLRequest(url: url, timeoutInterval: 45.0)
@@ -414,6 +783,8 @@ final class GGDiscordProfileStore {
         _ profile: GGDiscordProfileData,
         bannerUrl: String,
         musicUrl: String,
+        syncedPlaylist: [[String: String]],
+        voiceBioUrl: String,
         ts: Int64,
         dialogId: Int64,
         completion: (() -> Void)? = nil
@@ -423,11 +794,24 @@ final class GGDiscordProfileStore {
             "bannerUrl": bannerUrl,
             "effectId": profile.effectId,
             "avatarFrameId": profile.avatarFrameId,
+            "nitroThemeId": profile.nitroThemeId,
             "customStatus": String(profile.customStatus.prefix(140)),
             "steamInput": String(profile.steamInput.prefix(120)),
             "robloxInput": String(profile.robloxInput.prefix(120)),
+            "twitchInput": String(profile.twitchInput.prefix(80)),
+            "githubInput": String(profile.githubInput.prefix(80)),
+            "youtubeInput": String(profile.youtubeInput.prefix(80)),
+            "tiktokInput": String(profile.tiktokInput.prefix(80)),
+            "kickInput": String(profile.kickInput.prefix(80)),
+            "discordTag": String(profile.discordTag.prefix(64)),
+            "musicServiceKind": profile.musicServiceKind,
+            "musicServiceUser": String(profile.musicServiceUser.prefix(80)),
+            "duoUsername": String(profile.duoUsername.prefix(64)),
+            "duoLabel": String(profile.duoLabel.prefix(64)),
+            "voiceBioUrl": voiceBioUrl,
             "musicUrl": musicUrl,
             "musicTitle": String(profile.musicTitle.prefix(120)),
+            "musicPlaylist": syncedPlaylist,
             "ts": ts
         ]
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
@@ -484,7 +868,8 @@ final class GGDiscordProfileStore {
         let group = DispatchGroup()
         let urlLock = NSLock()
         var resolvedBannerUrl = GGMediaTokCoreLogic.isAllowedMediaURL(profile.bannerUrl)?.absoluteString ?? ""
-        var resolvedMusicUrl = GGMediaTokCoreLogic.isAllowedMediaURL(profile.musicUrl)?.absoluteString ?? ""
+        var resolvedVoiceUrl = GGMediaTokCoreLogic.isAllowedMediaURL(profile.voiceBioUrl)?.absoluteString ?? ""
+        var tracks = profile.effectivePlaylist
 
         if !profile.bannerFileName.isEmpty && resolvedBannerUrl.isEmpty,
            let localUrl = self.bannerFileURL(for: profile),
@@ -500,30 +885,59 @@ final class GGDiscordProfileStore {
             }
         }
 
-        if !profile.musicFileName.isEmpty && resolvedMusicUrl.isEmpty,
-           let localMusic = self.musicFileURL(for: profile),
-           let musicData = try? Data(contentsOf: localMusic), !musicData.isEmpty {
+        if !profile.voiceBioFileName.isEmpty && resolvedVoiceUrl.isEmpty,
+           let localVoice = self.voiceBioFileURL(for: profile),
+           let voiceData = try? Data(contentsOf: localVoice), !voiceData.isEmpty {
             group.enter()
-            GGDiscordProfileStore.uploadToCatbox(data: musicData, fileName: profile.musicFileName) { uploaded in
+            GGDiscordProfileStore.uploadToCatbox(data: voiceData, fileName: profile.voiceBioFileName) { uploaded in
                 if let uploaded {
                     urlLock.lock()
-                    resolvedMusicUrl = uploaded
+                    resolvedVoiceUrl = uploaded
                     urlLock.unlock()
                 }
                 group.leave()
             }
         }
 
+        let syncCap = min(tracks.count, 12)
+        for idx in 0 ..< syncCap {
+            let track = tracks[idx]
+            let validExisting = GGMediaTokCoreLogic.isAllowedMediaURL(track.url)?.absoluteString ?? ""
+            if validExisting.isEmpty,
+               !track.fileName.isEmpty,
+               let localTrack = self.trackFileURL(track),
+               let tData = try? Data(contentsOf: localTrack), !tData.isEmpty, tData.count <= 25 * 1024 * 1024 {
+                group.enter()
+                GGDiscordProfileStore.uploadToCatbox(data: tData, fileName: track.fileName) { uploaded in
+                    if let uploaded {
+                        urlLock.lock()
+                        tracks[idx].url = uploaded
+                        urlLock.unlock()
+                    }
+                    group.leave()
+                }
+            }
+        }
+
         group.notify(queue: .global(qos: .utility)) {
             urlLock.lock()
             let finalBanner = resolvedBannerUrl
-            let finalMusic = resolvedMusicUrl
+            let finalVoice = resolvedVoiceUrl
+            let updatedTracks = tracks
             urlLock.unlock()
+
+            let syncedPlaylistDicts: [[String: String]] = updatedTracks.prefix(12).compactMap { t in
+                guard let valid = GGMediaTokCoreLogic.isAllowedMediaURL(t.url)?.absoluteString else { return nil }
+                return ["id": t.id, "title": String(t.title.prefix(120)), "url": valid]
+            }
+            let firstMusicUrl = syncedPlaylistDicts.first?["url"] ?? (GGMediaTokCoreLogic.isAllowedMediaURL(profile.musicUrl)?.absoluteString ?? "")
 
             GGDiscordProfileStore.postProfileJson(
                 profile,
                 bannerUrl: finalBanner,
-                musicUrl: finalMusic,
+                musicUrl: firstMusicUrl,
+                syncedPlaylist: syncedPlaylistDicts,
+                voiceBioUrl: finalVoice,
                 ts: profile.updatedAt,
                 dialogId: dialogId
             ) {
@@ -531,7 +945,15 @@ final class GGDiscordProfileStore {
                 self.lock.lock()
                 if var cur = self.entries[key], cur.updatedAt <= profile.updatedAt {
                     if !finalBanner.isEmpty { cur.bannerUrl = finalBanner }
-                    if !finalMusic.isEmpty { cur.musicUrl = finalMusic }
+                    if !finalVoice.isEmpty { cur.voiceBioUrl = finalVoice }
+                    if !firstMusicUrl.isEmpty { cur.musicUrl = firstMusicUrl }
+                    if !cur.musicPlaylist.isEmpty {
+                        for idx in 0 ..< min(cur.musicPlaylist.count, updatedTracks.count) {
+                            if !updatedTracks[idx].url.isEmpty {
+                                cur.musicPlaylist[idx].url = updatedTracks[idx].url
+                            }
+                        }
+                    }
                     self.entries[key] = cur
                     self.persistLocked()
                 }
@@ -556,14 +978,22 @@ final class GGDiscordProfileStore {
             }
             self.lock.unlock()
             if needHeartbeat {
-                if (!localProf.bannerFileName.isEmpty && localProf.bannerUrl.isEmpty) ||
-                   (!localProf.musicFileName.isEmpty && localProf.musicUrl.isEmpty) {
+                let needsMediaUpload = (!localProf.bannerFileName.isEmpty && localProf.bannerUrl.isEmpty)
+                    || (!localProf.voiceBioFileName.isEmpty && localProf.voiceBioUrl.isEmpty)
+                    || localProf.effectivePlaylist.prefix(12).contains { !$0.fileName.isEmpty && $0.url.isEmpty }
+                if needsMediaUpload {
                     self.publishGlobalProfile(localProf, for: peerId)
                 } else {
+                    let dicts: [[String: String]] = localProf.effectivePlaylist.prefix(12).compactMap { t in
+                        guard let valid = GGMediaTokCoreLogic.isAllowedMediaURL(t.url)?.absoluteString else { return nil }
+                        return ["id": t.id, "title": String(t.title.prefix(120)), "url": valid]
+                    }
                     GGDiscordProfileStore.postProfileJson(
                         localProf,
                         bannerUrl: localProf.bannerUrl,
                         musicUrl: localProf.musicUrl,
+                        syncedPlaylist: dicts,
+                        voiceBioUrl: localProf.voiceBioUrl,
                         ts: Int64(now),
                         dialogId: dialogId
                     )
@@ -623,10 +1053,13 @@ final class GGDiscordProfileStore {
 
             let rawBannerUrl = obj["bannerUrl"] as? String ?? ""
             let rawMusicUrl = obj["musicUrl"] as? String ?? ""
+            let rawVoiceUrl = obj["voiceBioUrl"] as? String ?? ""
             let validatedBanner = GGMediaTokCoreLogic.isAllowedMediaURL(rawBannerUrl)
             let validatedMusic = GGMediaTokCoreLogic.isAllowedMediaURL(rawMusicUrl)
+            let validatedVoice = GGMediaTokCoreLogic.isAllowedMediaURL(rawVoiceUrl)
             let remoteBannerUrl = validatedBanner?.absoluteString ?? ""
             let remoteMusicUrl = validatedMusic?.absoluteString ?? ""
+            let remoteVoiceUrl = validatedVoice?.absoluteString ?? ""
 
             let validEffects = Set(GGDiscordProfileStore.effects.map { $0.id })
             let rawEffect = obj["effectId"] as? String ?? "none"
@@ -636,15 +1069,45 @@ final class GGDiscordProfileStore {
             let rawFrame = obj["avatarFrameId"] as? String ?? "none"
             let safeFrame = validFrames.contains(rawFrame) ? rawFrame : "none"
 
+            let validNitros = Set(GGDiscordProfileStore.nitroThemes.map { $0.id })
+            let rawNitro = obj["nitroThemeId"] as? String ?? "none"
+            let safeNitro = validNitros.contains(rawNitro) ? rawNitro : "none"
+
+            let rawMusicSvc = (obj["musicServiceKind"] as? String ?? "none").lowercased()
+            let safeMusicSvc = ["none", "lastfm", "listenbrainz"].contains(rawMusicSvc) ? rawMusicSvc : "none"
+
             let safeStatus = String((obj["customStatus"] as? String ?? "").prefix(140))
             let safeSteam = String((obj["steamInput"] as? String ?? "").prefix(120))
             let safeRoblox = String((obj["robloxInput"] as? String ?? "").prefix(120))
             let safeMusicTitle = String((obj["musicTitle"] as? String ?? "").prefix(120))
+            let safeTwitch = String((obj["twitchInput"] as? String ?? "").prefix(80))
+            let safeGithub = String((obj["githubInput"] as? String ?? "").prefix(80))
+            let safeYoutube = String((obj["youtubeInput"] as? String ?? "").prefix(80))
+            let safeTiktok = String((obj["tiktokInput"] as? String ?? "").prefix(80))
+            let safeKick = String((obj["kickInput"] as? String ?? "").prefix(80))
+            let safeDiscord = String((obj["discordTag"] as? String ?? "").prefix(64))
+            let safeMusicUser = String((obj["musicServiceUser"] as? String ?? "").prefix(80))
+            let safeDuoUser = String((obj["duoUsername"] as? String ?? "").prefix(64))
+            let safeDuoLabel = String((obj["duoLabel"] as? String ?? "").prefix(64))
+
+            var parsedPlaylist: [GGProfileTrack] = []
+            if let arr = obj["musicPlaylist"] as? [[String: Any]] {
+                for item in arr.prefix(12) {
+                    if let urlStr = item["url"] as? String,
+                       let validUrl = GGMediaTokCoreLogic.isAllowedMediaURL(urlStr) {
+                        let tTitle = String((item["title"] as? String ?? "Трек").prefix(120))
+                        let tid = String((item["id"] as? String ?? UUID().uuidString).prefix(64))
+                        let prevFile = existing?.musicPlaylist.first(where: { $0.url == validUrl.absoluteString })?.fileName ?? ""
+                        parsedPlaylist.append(GGProfileTrack(id: tid, title: tTitle, fileName: prevFile, url: validUrl.absoluteString))
+                    }
+                }
+            }
 
             let dlGroup = DispatchGroup()
             let dlLock = NSLock()
             var savedBannerFile = (remoteBannerUrl == existing?.bannerUrl) ? (existing?.bannerFileName ?? "") : ""
             var savedMusicFile = (remoteMusicUrl == existing?.musicUrl) ? (existing?.musicFileName ?? "") : ""
+            var savedVoiceFile = (remoteVoiceUrl == existing?.voiceBioUrl) ? (existing?.voiceBioFileName ?? "") : ""
 
             if let bUrl = validatedBanner, savedBannerFile.isEmpty {
                 dlGroup.enter()
@@ -658,7 +1121,35 @@ final class GGDiscordProfileStore {
                 }
             }
 
-            if let mUrl = validatedMusic, savedMusicFile.isEmpty {
+            if let vUrl = validatedVoice, savedVoiceFile.isEmpty {
+                dlGroup.enter()
+                GGDiscordProfileStore.downloadLimitedData(from: vUrl, maxBytes: 5 * 1024 * 1024) { vData in
+                    if let vData, let saved = self.saveVoiceBioData(vData, ext: vUrl.pathExtension, for: peerId) {
+                        dlLock.lock()
+                        savedVoiceFile = saved
+                        dlLock.unlock()
+                    }
+                    dlGroup.leave()
+                }
+            }
+
+            if !parsedPlaylist.isEmpty {
+                for idx in 0 ..< min(parsedPlaylist.count, 3) {
+                    if parsedPlaylist[idx].fileName.isEmpty,
+                       let tUrl = GGMediaTokCoreLogic.isAllowedMediaURL(parsedPlaylist[idx].url) {
+                        dlGroup.enter()
+                        GGDiscordProfileStore.downloadLimitedData(from: tUrl, maxBytes: 25 * 1024 * 1024) { mData in
+                            if let mData, let saved = self.saveMusicData(mData, ext: tUrl.pathExtension, for: peerId) {
+                                dlLock.lock()
+                                parsedPlaylist[idx].fileName = saved
+                                if idx == 0 { savedMusicFile = saved }
+                                dlLock.unlock()
+                            }
+                            dlGroup.leave()
+                        }
+                    }
+                }
+            } else if let mUrl = validatedMusic, savedMusicFile.isEmpty {
                 dlGroup.enter()
                 GGDiscordProfileStore.downloadLimitedData(from: mUrl, maxBytes: 25 * 1024 * 1024) { mData in
                     if let mData, let saved = self.saveMusicData(mData, ext: mUrl.pathExtension, for: peerId) {
@@ -674,6 +1165,8 @@ final class GGDiscordProfileStore {
                 dlLock.lock()
                 let finalBannerFile = savedBannerFile
                 let finalMusicFile = savedMusicFile
+                let finalVoiceFile = savedVoiceFile
+                let finalPlaylist = parsedPlaylist
                 dlLock.unlock()
 
                 let remote = GGDiscordProfileData(
@@ -687,6 +1180,20 @@ final class GGDiscordProfileStore {
                     musicFileName: finalMusicFile,
                     musicUrl: remoteMusicUrl,
                     musicTitle: safeMusicTitle,
+                    musicPlaylist: finalPlaylist,
+                    voiceBioFileName: finalVoiceFile,
+                    voiceBioUrl: remoteVoiceUrl,
+                    musicServiceKind: safeMusicSvc,
+                    musicServiceUser: safeMusicUser,
+                    twitchInput: safeTwitch,
+                    githubInput: safeGithub,
+                    youtubeInput: safeYoutube,
+                    tiktokInput: safeTiktok,
+                    kickInput: safeKick,
+                    discordTag: safeDiscord,
+                    nitroThemeId: safeNitro,
+                    duoUsername: safeDuoUser,
+                    duoLabel: safeDuoLabel,
                     updatedAt: remoteTs
                 )
                 self.lock.lock()
@@ -711,7 +1218,7 @@ final class GGDiscordProfileStore {
     }
 }
 
-// MARK: - Live Steam & Roblox Resolvers (Public Endpoints, Zero API Keys)
+// MARK: - Live Steam, Roblox, Music, Twitch & GitHub Resolvers (Public Endpoints, Zero API Keys)
 
 private struct GGResolvedConnection {
     let displayText: String
@@ -726,6 +1233,9 @@ private final class GGConnectionResolvers {
     private let lock = NSLock()
     private var steamCache: [String: GGResolvedConnection] = [:]
     private var robloxCache: [String: GGResolvedConnection] = [:]
+    private var musicCache: [String: GGResolvedConnection] = [:]
+    private var twitchCache: [String: GGResolvedConnection] = [:]
+    private var githubCache: [String: GGResolvedConnection] = [:]
     private var inFlight: Set<String> = []
 
     private init() {}
@@ -953,6 +1463,189 @@ private final class GGConnectionResolvers {
         }
         let fallbackText = parsed.username.map { "@\($0) · Roblox" } ?? "Roblox ID \(parsed.userId ?? 0)"
         return (fallbackText, "Roblox", parsed.fallbackUrl)
+    }
+
+    func liveMusicInfo(kind: String, user: String, onUpdate: @escaping () -> Void) -> (text: String, badge: String, url: URL)? {
+        let cleanKind = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cleanUser = user.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleanKind == "lastfm" || cleanKind == "listenbrainz",
+              !cleanUser.isEmpty,
+              !cleanUser.contains(".."),
+              !cleanUser.contains("/"),
+              !cleanUser.contains("@"),
+              let encoded = cleanUser.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            return nil
+        }
+
+        let profileUrl: URL? = (cleanKind == "lastfm")
+            ? URL(string: "https://www.last.fm/user/\(encoded)")
+            : URL(string: "https://listenbrainz.org/user/\(encoded)/")
+        guard let targetProfileUrl = profileUrl else { return nil }
+
+        let key = "music:\(cleanKind):\(cleanUser.lowercased())"
+        let now = Date().timeIntervalSince1970
+
+        self.lock.lock()
+        let cached = self.musicCache[key]
+        let needFetch = (cached == nil || (now - (cached?.fetchedAt ?? 0)) > 60.0) && !self.inFlight.contains(key)
+        if needFetch { self.inFlight.insert(key) }
+        self.lock.unlock()
+
+        if needFetch {
+            let storeResult: (GGMediaTokCoreLogic.LiveMusicTrack?) -> Void = { track in
+                self.lock.lock()
+                self.inFlight.remove(key)
+                if let track {
+                    let display = track.artist.isEmpty ? track.track : "\(track.artist) — \(track.track)"
+                    let badge = track.isLive ? "🟢 Сейчас" : (cleanKind == "lastfm" ? "Last.fm" : "ListenBrainz")
+                    self.musicCache[key] = GGResolvedConnection(
+                        displayText: display,
+                        statusBadge: badge,
+                        profileUrl: targetProfileUrl,
+                        fetchedAt: Date().timeIntervalSince1970
+                    )
+                }
+                self.lock.unlock()
+                if track != nil {
+                    DispatchQueue.main.async { onUpdate() }
+                }
+            }
+
+            if cleanKind == "listenbrainz",
+               let liveUrl = URL(string: "https://api.listenbrainz.org/1/user/\(encoded)/playing-now") {
+                var req = URLRequest(url: liveUrl, timeoutInterval: 8.0)
+                req.setValue("MediaTok/Music", forHTTPHeaderField: "User-Agent")
+                URLSession.shared.dataTask(with: req) { data, _, _ in
+                    if let data, let live = GGMediaTokCoreLogic.parseListenBrainzJson(data) {
+                        storeResult(live)
+                        return
+                    }
+                    guard let recUrl = URL(string: "https://api.listenbrainz.org/1/user/\(encoded)/listens?count=1") else {
+                        storeResult(nil)
+                        return
+                    }
+                    var req2 = URLRequest(url: recUrl, timeoutInterval: 8.0)
+                    req2.setValue("MediaTok/Music", forHTTPHeaderField: "User-Agent")
+                    URLSession.shared.dataTask(with: req2) { data2, _, _ in
+                        let recent = data2.flatMap { GGMediaTokCoreLogic.parseListenBrainzJson($0) }
+                        storeResult(recent)
+                    }.resume()
+                }.resume()
+            } else {
+                var req = URLRequest(url: targetProfileUrl, timeoutInterval: 10.0)
+                req.setValue("MediaTok/Music", forHTTPHeaderField: "User-Agent")
+                URLSession.shared.dataTask(with: req) { data, _, _ in
+                    let parsedTrack = data.flatMap { String(data: $0, encoding: .utf8) }.flatMap { GGMediaTokCoreLogic.parseLastFmHtml($0) }
+                    storeResult(parsedTrack)
+                }.resume()
+            }
+        }
+
+        if let cached {
+            return (cached.displayText, cached.statusBadge, cached.profileUrl)
+        }
+        let serviceLabel = (cleanKind == "lastfm") ? "Last.fm" : "ListenBrainz"
+        return ("\(cleanUser) (\(serviceLabel))", "🎧 Sync", targetProfileUrl)
+    }
+
+    func twitchInfo(for input: String, onUpdate: @escaping () -> Void) -> (text: String, badge: String, url: URL)? {
+        guard let norm = GGMediaTokCoreLogic.normalizeConnection(platform: "twitch", raw: input) else { return nil }
+        let key = "twitch:\(norm.handle.lowercased())"
+        let now = Date().timeIntervalSince1970
+
+        self.lock.lock()
+        let cached = self.twitchCache[key]
+        let needFetch = (cached == nil || (now - (cached?.fetchedAt ?? 0)) > 120.0) && !self.inFlight.contains(key)
+        if needFetch { self.inFlight.insert(key) }
+        self.lock.unlock()
+
+        if needFetch,
+           let encoded = norm.handle.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+           let apiUrl = URL(string: "https://decapi.me/twitch/uptime/\(encoded)") {
+            var req = URLRequest(url: apiUrl, timeoutInterval: 8.0)
+            req.setValue("MediaTok/Twitch", forHTTPHeaderField: "User-Agent")
+            URLSession.shared.dataTask(with: req) { data, response, _ in
+                defer {
+                    self.lock.lock()
+                    self.inFlight.remove(key)
+                    self.lock.unlock()
+                }
+                guard let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode),
+                      let data, let body = String(data: data, encoding: .utf8) else {
+                    return
+                }
+                let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+                let lower = trimmed.lowercased()
+                let isOffline = lower.contains("offline") || lower.contains("not found") || lower.contains("error") || trimmed.isEmpty
+                let badge = isOffline ? "⚫ Офлайн" : "🟣 В эфире"
+                let text = isOffline ? norm.handle : "\(norm.handle) · \(String(trimmed.prefix(40)))"
+                let resolved = GGResolvedConnection(
+                    displayText: text,
+                    statusBadge: badge,
+                    profileUrl: norm.url,
+                    fetchedAt: Date().timeIntervalSince1970
+                )
+                self.lock.lock()
+                self.twitchCache[key] = resolved
+                self.lock.unlock()
+                DispatchQueue.main.async { onUpdate() }
+            }.resume()
+        }
+
+        if let cached {
+            return (cached.displayText, cached.statusBadge, cached.profileUrl)
+        }
+        return (norm.handle, "Twitch", norm.url)
+    }
+
+    func githubInfo(for input: String, onUpdate: @escaping () -> Void) -> (text: String, badge: String, url: URL)? {
+        guard let norm = GGMediaTokCoreLogic.normalizeConnection(platform: "github", raw: input) else { return nil }
+        let key = "github:\(norm.handle.lowercased())"
+        let now = Date().timeIntervalSince1970
+
+        self.lock.lock()
+        let cached = self.githubCache[key]
+        let needFetch = (cached == nil || (now - (cached?.fetchedAt ?? 0)) > 600.0) && !self.inFlight.contains(key)
+        if needFetch { self.inFlight.insert(key) }
+        self.lock.unlock()
+
+        if needFetch,
+           let encoded = norm.handle.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+           let apiUrl = URL(string: "https://api.github.com/users/\(encoded)") {
+            var req = URLRequest(url: apiUrl, timeoutInterval: 8.0)
+            req.setValue("MediaTok/GitHub", forHTTPHeaderField: "User-Agent")
+            URLSession.shared.dataTask(with: req) { data, _, _ in
+                defer {
+                    self.lock.lock()
+                    self.inFlight.remove(key)
+                    self.lock.unlock()
+                }
+                guard let data,
+                      let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                      let login = obj["login"] as? String else {
+                    return
+                }
+                let repos = obj["public_repos"] as? Int ?? 0
+                let followers = obj["followers"] as? Int ?? 0
+                let badge = "💻 \(repos) репо"
+                let text = followers > 0 ? "@\(login) · \(followers) подп." : "@\(login)"
+                let resolved = GGResolvedConnection(
+                    displayText: text,
+                    statusBadge: badge,
+                    profileUrl: norm.url,
+                    fetchedAt: Date().timeIntervalSince1970
+                )
+                self.lock.lock()
+                self.githubCache[key] = resolved
+                self.lock.unlock()
+                DispatchQueue.main.async { onUpdate() }
+            }.resume()
+        }
+
+        if let cached {
+            return (cached.displayText, cached.statusBadge, cached.profileUrl)
+        }
+        return ("@\(norm.handle)", "GitHub", norm.url)
     }
 }
 
@@ -1239,9 +1932,12 @@ private final class GGDiscordHeaderOverlay {
 
     private var bannerImageView: UIImageView?
     private var bannerScrimLayer: CAGradientLayer?
+    private var nitroTintView: UIView?
+    private var nitroGradientLayer: CAGradientLayer?
     private var loadedBannerFile: String = ""
     private var effectView: GGDiscordEffectView?
     private var avatarFrameView: GGAvatarFrameRingView?
+    private var voiceBioButton: UIButton?
     private var disposable: Disposable?
 
     private init(node: ASDisplayNode) {
@@ -1257,6 +1953,9 @@ private final class GGDiscordHeaderOverlay {
     }
 
     static func update(_ header: GGPeerInfoHeader) {
+        if header.isSettings {
+            GGDiscordProfileStore.shared.activeAccountPeerId = header.context.account.peerId
+        }
         let resolvedPeerId: PeerId? = header.peer?.id ?? (header.isSettings ? header.context.account.peerId : nil)
         guard let peerId = resolvedPeerId else { return }
 
@@ -1276,15 +1975,39 @@ private final class GGDiscordHeaderOverlay {
         overlay.refresh()
     }
 
+    @objc private func voiceBioTapped() {
+        guard let peerId = self.peerId,
+              let profile = GGDiscordProfileStore.shared.profile(for: peerId) else {
+            return
+        }
+        GGProfileMusicPlayer.shared.toggleVoiceBio(peerId: peerId, profile: profile) { [weak self] in
+            self?.updateVoiceButtonAppearance(peerId: peerId)
+        }
+    }
+
+    private func updateVoiceButtonAppearance(peerId: PeerId) {
+        guard let btn = self.voiceBioButton else { return }
+        let playing = GGProfileMusicPlayer.shared.isPlayingVoiceBio(peerId: peerId)
+        let symName = playing ? "pause.fill" : "play.fill"
+        let cfg = UIImage.SymbolConfiguration(pointSize: 11.0, weight: .bold)
+        btn.setImage(UIImage(systemName: symName, withConfiguration: cfg), for: .normal)
+        btn.backgroundColor = playing
+            ? UIColor(rgb: 0x00F5FF).withAlphaComponent(0.92)
+            : UIColor.black.withAlphaComponent(0.78)
+        btn.tintColor = playing ? .black : .white
+    }
+
     private func refresh() {
         guard let node = self.node, let peerId = self.peerId else { return }
         let profile = GGDiscordProfileStore.shared.profile(for: peerId)
         let bannerAnchor = self.bannerContainer ?? node.view.subviews.first
 
         // 1. 4K Banner Image
+        var hasBanner = false
         if let profile,
            let bannerUrl = GGDiscordProfileStore.shared.bannerFileURL(for: profile),
            let anchor = bannerAnchor {
+            hasBanner = true
             let iv: UIImageView
             if let existing = self.bannerImageView {
                 iv = existing
@@ -1320,6 +2043,42 @@ private final class GGDiscordHeaderOverlay {
             self.loadedBannerFile = ""
         }
 
+        // 1b. Nitro 2-Color Gradient Theme
+        let nitroId = profile?.nitroThemeId ?? "none"
+        if nitroId != "none" && !nitroId.isEmpty,
+           let spec = GGDiscordProfileStore.nitroThemes.first(where: { $0.id == nitroId }),
+           spec.colors.count >= 2,
+           let anchor = bannerAnchor {
+            let tv: UIView
+            let gl: CAGradientLayer
+            if let existing = self.nitroTintView, let existingLayer = self.nitroGradientLayer {
+                tv = existing
+                gl = existingLayer
+            } else {
+                tv = UIView()
+                tv.isUserInteractionEnabled = false
+                tv.clipsToBounds = true
+                gl = CAGradientLayer()
+                gl.startPoint = CGPoint(x: 0.0, y: 0.0)
+                gl.endPoint = CGPoint(x: 1.0, y: 1.0)
+                tv.layer.addSublayer(gl)
+                self.nitroTintView = tv
+                self.nitroGradientLayer = gl
+            }
+            let alpha: CGFloat = hasBanner ? 0.34 : 0.62
+            gl.colors = spec.colors.map { $0.withAlphaComponent(alpha).cgColor }
+            let targetBelow = self.bannerImageView ?? anchor
+            if tv.superview !== node.view {
+                node.view.insertSubview(tv, aboveSubview: targetBelow)
+            }
+            tv.frame = CGRect(x: 0.0, y: 0.0, width: max(self.lastWidth, anchor.frame.width), height: max(0.0, anchor.frame.maxY))
+            gl.frame = tv.bounds
+        } else {
+            self.nitroTintView?.removeFromSuperview()
+            self.nitroTintView = nil
+            self.nitroGradientLayer = nil
+        }
+
         // 2. Animated Profile Effect
         let effectId = profile?.effectId ?? "none"
         if effectId != "none" && !effectId.isEmpty, let anchor = bannerAnchor {
@@ -1330,7 +2089,7 @@ private final class GGDiscordHeaderOverlay {
                 ev = GGDiscordEffectView(frame: .zero)
                 self.effectView = ev
             }
-            let targetBelow = self.bannerImageView ?? anchor
+            let targetBelow = self.nitroTintView ?? self.bannerImageView ?? anchor
             if ev.superview !== node.view {
                 node.view.insertSubview(ev, aboveSubview: targetBelow)
             }
@@ -1341,10 +2100,10 @@ private final class GGDiscordHeaderOverlay {
             self.effectView = nil
         }
 
-        // 3. Glowing Animated Avatar Frame
+        // 3. Glowing Animated Avatar Frame & Tiny Circular Voice Bio Button
+        let avatarRect = self.locateRoundAvatarFrame(in: node.view, headerWidth: self.lastWidth)
         let frameId = profile?.avatarFrameId ?? "none"
-        if frameId != "none" && !frameId.isEmpty,
-           let avatarRect = self.locateRoundAvatarFrame(in: node.view, headerWidth: self.lastWidth) {
+        if frameId != "none" && !frameId.isEmpty, let avatarRect {
             let ring: GGAvatarFrameRingView
             if let existing = self.avatarFrameView {
                 ring = existing
@@ -1361,6 +2120,33 @@ private final class GGDiscordHeaderOverlay {
         } else {
             self.avatarFrameView?.isHidden = true
         }
+
+        let hasVoiceBio = !(profile?.voiceBioFileName.isEmpty ?? true) || !(profile?.voiceBioUrl.isEmpty ?? true)
+        if hasVoiceBio, let avatarRect {
+            let btn: UIButton
+            if let existing = self.voiceBioButton {
+                btn = existing
+            } else {
+                btn = UIButton(type: .system)
+                btn.layer.cornerRadius = 13.0
+                btn.layer.borderWidth = 1.5
+                btn.layer.borderColor = UIColor(rgb: 0x00F5FF).withAlphaComponent(0.9).cgColor
+                btn.layer.shadowColor = UIColor.black.cgColor
+                btn.layer.shadowRadius = 4.0
+                btn.layer.shadowOpacity = 0.45
+                btn.layer.shadowOffset = .zero
+                btn.addTarget(self, action: #selector(self.voiceBioTapped), for: .touchUpInside)
+                self.voiceBioButton = btn
+            }
+            if btn.superview !== node.view {
+                node.view.addSubview(btn)
+            }
+            btn.frame = CGRect(x: avatarRect.maxX - 24.0, y: avatarRect.maxY - 24.0, width: 26.0, height: 26.0)
+            self.updateVoiceButtonAppearance(peerId: peerId)
+            btn.isHidden = false
+        } else {
+            self.voiceBioButton?.isHidden = true
+        }
     }
 
     private func locateRoundAvatarFrame(in root: UIView, headerWidth: CGFloat) -> CGRect? {
@@ -1369,7 +2155,7 @@ private final class GGDiscordHeaderOverlay {
         var best: CGRect?
         func scan(_ view: UIView, depth: Int) {
             if depth > 4 || view.isHidden || view.alpha < 0.25 { return }
-            if view is GGDiscordEffectView || view is GGAvatarFrameRingView || view === self.bannerImageView { return }
+            if view is GGDiscordEffectView || view is GGAvatarFrameRingView || view === self.bannerImageView || view === self.nitroTintView || view === self.voiceBioButton { return }
             let rect = view.convert(view.bounds, to: root)
             let w = rect.width
             let h = rect.height
@@ -1408,6 +2194,7 @@ enum GGMediaTokDiscordProfile {
 
     private static func infoRows(_ info: GGPeerInfoContext) -> [GGPeerInfoRow] {
         let peerId = info.peer.id
+        GGDiscordProfileStore.shared.activeAccountPeerId = info.context.account.peerId
         weak let controller = info.controller
         GGDiscordProfileStore.shared.checkGlobalProfile(for: peerId) {
             controller?.requestLayout(transition: .immediate)
@@ -1419,15 +2206,17 @@ enum GGMediaTokDiscordProfile {
         var rows: [GGPeerInfoRow] = []
         let context = info.context
 
-        // Full Music Track on Profile
-        if !profile.musicFileName.isEmpty || !profile.musicUrl.isEmpty {
+        // Infinite Playlist on Profile
+        let playlist = profile.effectivePlaylist
+        if !playlist.isEmpty {
             let isPlaying = GGProfileMusicPlayer.shared.isPlaying(peerId: peerId)
-            let titleText = profile.musicTitle.isEmpty ? "Трек профиля (нажмите для воспроизведения)" : profile.musicTitle
-            let badgeText = isPlaying ? "⏸ Пауза" : "▶️ Слушать (Фулл)"
+            let summary = GGProfileMusicPlayer.shared.currentTrackSummary(peerId: peerId, playlist: playlist)
+            let label = playlist.count > 1 ? "🎵 Плейлист (\(summary.positionText))" : "🎵 Музыка профиля"
+            let badgeText = isPlaying ? "⏸ Пауза" : (playlist.count > 1 ? "▶️ Плейлист" : "▶️ Слушать")
             rows.append(GGPeerInfoRow(
                 id: "mediatok.discord.music",
-                label: "🎵 Музыка профиля",
-                text: titleText,
+                label: label,
+                text: summary.title,
                 rightLabel: badgeText,
                 action: {
                     GGProfileMusicPlayer.shared.toggle(peerId: peerId, profile: profile) {
@@ -1435,7 +2224,44 @@ enum GGMediaTokDiscordProfile {
                     }
                 },
                 longTapAction: {
-                    GGMediaTokDiscordProfile.copyAndToast(titleText, context: context, controller: controller)
+                    GGMediaTokDiscordProfile.presentPlaylistControls(peerId: peerId, profile: profile, controller: controller, context: context)
+                }
+            ))
+            if playlist.count > 1 {
+                let shuffleState = GGProfileMusicPlayer.shared.shuffleEnabled ? "🔀 Шаффл ВКЛ" : "⏭ След. трек"
+                rows.append(GGPeerInfoRow(
+                    id: "mediatok.discord.music.next",
+                    label: "🎛 Плеер (\(playlist.count) трек.)",
+                    text: "Нажми — следующий трек · Зажми — выбор / шаффл",
+                    rightLabel: shuffleState,
+                    action: {
+                        GGProfileMusicPlayer.shared.next(peerId: peerId, profile: profile) {
+                            controller?.requestLayout(transition: .immediate)
+                        }
+                    },
+                    longTapAction: {
+                        GGMediaTokDiscordProfile.presentPlaylistControls(peerId: peerId, profile: profile, controller: controller, context: context)
+                    }
+                ))
+            }
+        }
+
+        // Live Now-Playing Music Service (Last.fm / ListenBrainz for Spotify, Yandex, VK, Apple Music)
+        if !profile.musicServiceUser.isEmpty,
+           profile.musicServiceKind != "none",
+           let liveMusic = GGConnectionResolvers.shared.liveMusicInfo(kind: profile.musicServiceKind, user: profile.musicServiceUser, onUpdate: {
+               controller?.requestLayout(transition: .immediate)
+           }) {
+            rows.append(GGPeerInfoRow(
+                id: "mediatok.discord.liveMusic",
+                label: "🎧 Слушает сейчас",
+                text: liveMusic.text,
+                rightLabel: liveMusic.badge,
+                action: {
+                    UIApplication.shared.open(liveMusic.url, options: [:], completionHandler: nil)
+                },
+                longTapAction: {
+                    GGMediaTokDiscordProfile.copyAndToast(liveMusic.text, context: context, controller: controller)
                 }
             ))
         }
@@ -1452,13 +2278,35 @@ enum GGMediaTokDiscordProfile {
             ))
         }
 
+        // Duo / Couple Profile Link
+        let rawDuo = profile.duoUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanDuo = rawDuo.hasPrefix("@") ? String(rawDuo.dropFirst()) : rawDuo
+        if !cleanDuo.isEmpty,
+           !cleanDuo.contains("/"),
+           !cleanDuo.contains(".."),
+           let duoUrl = URL(string: "https://t.me/\(cleanDuo)") {
+            let duoTitle = profile.duoLabel.isEmpty ? "В паре с @\(cleanDuo)" : "\(profile.duoLabel) · @\(cleanDuo)"
+            rows.append(GGPeerInfoRow(
+                id: "mediatok.discord.duo",
+                label: "💞 Пара MediaTok",
+                text: duoTitle,
+                rightLabel: "Профиль →",
+                action: {
+                    UIApplication.shared.open(duoUrl, options: [:], completionHandler: nil)
+                },
+                longTapAction: {
+                    GGMediaTokDiscordProfile.copyAndToast("@\(cleanDuo)", context: context, controller: controller)
+                }
+            ))
+        }
+
         if !profile.steamInput.isEmpty,
            let steam = GGConnectionResolvers.shared.steamInfo(for: profile.steamInput, onUpdate: {
                controller?.requestLayout(transition: .immediate)
            }) {
             rows.append(GGPeerInfoRow(
                 id: "mediatok.discord.steam",
-                label: "Steam",
+                label: "Steam ✓",
                 text: steam.text,
                 rightLabel: steam.badge,
                 action: {
@@ -1476,7 +2324,7 @@ enum GGMediaTokDiscordProfile {
            }) {
             rows.append(GGPeerInfoRow(
                 id: "mediatok.discord.roblox",
-                label: "Roblox",
+                label: "Roblox ✓",
                 text: roblox.text,
                 rightLabel: roblox.badge,
                 action: {
@@ -1488,7 +2336,115 @@ enum GGMediaTokDiscordProfile {
             ))
         }
 
+        if !profile.twitchInput.isEmpty,
+           let twitch = GGConnectionResolvers.shared.twitchInfo(for: profile.twitchInput, onUpdate: {
+               controller?.requestLayout(transition: .immediate)
+           }) {
+            rows.append(GGPeerInfoRow(
+                id: "mediatok.discord.twitch",
+                label: "Twitch ✓",
+                text: twitch.text,
+                rightLabel: twitch.badge,
+                action: {
+                    UIApplication.shared.open(twitch.url, options: [:], completionHandler: nil)
+                },
+                longTapAction: {
+                    GGMediaTokDiscordProfile.copyAndToast(twitch.url.absoluteString, context: context, controller: controller)
+                }
+            ))
+        }
+
+        if !profile.githubInput.isEmpty,
+           let gh = GGConnectionResolvers.shared.githubInfo(for: profile.githubInput, onUpdate: {
+               controller?.requestLayout(transition: .immediate)
+           }) {
+            rows.append(GGPeerInfoRow(
+                id: "mediatok.discord.github",
+                label: "GitHub ✓",
+                text: gh.text,
+                rightLabel: gh.badge,
+                action: {
+                    UIApplication.shared.open(gh.url, options: [:], completionHandler: nil)
+                },
+                longTapAction: {
+                    GGMediaTokDiscordProfile.copyAndToast(gh.url.absoluteString, context: context, controller: controller)
+                }
+            ))
+        }
+
+        let staticConnections: [(id: String, platform: String, raw: String, badge: String)] = [
+            ("youtube", "youtube", profile.youtubeInput, "▶️ Канал"),
+            ("tiktok", "tiktok", profile.tiktokInput, "🎵 Профиль"),
+            ("kick", "kick", profile.kickInput, "💚 Kick"),
+            ("discord", "discord", profile.discordTag, "💬 Discord")
+        ]
+        for item in staticConnections where !item.raw.isEmpty {
+            if let norm = GGMediaTokCoreLogic.normalizeConnection(platform: item.platform, raw: item.raw) {
+                rows.append(GGPeerInfoRow(
+                    id: "mediatok.discord.conn.\(item.id)",
+                    label: "\(norm.label) ✓",
+                    text: norm.handle,
+                    rightLabel: item.badge,
+                    action: {
+                        if item.platform == "discord" {
+                            GGMediaTokDiscordProfile.copyAndToast(norm.handle, context: context, controller: controller)
+                        } else {
+                            UIApplication.shared.open(norm.url, options: [:], completionHandler: nil)
+                        }
+                    },
+                    longTapAction: {
+                        GGMediaTokDiscordProfile.copyAndToast(norm.handle, context: context, controller: controller)
+                    }
+                ))
+            }
+        }
+
         return rows
+    }
+
+    private static func presentPlaylistControls(peerId: PeerId, profile: GGDiscordProfileData, controller: ViewController?, context: AccountContext) {
+        DispatchQueue.main.async {
+            let playlist = profile.effectivePlaylist
+            let summary = GGProfileMusicPlayer.shared.currentTrackSummary(peerId: peerId, playlist: playlist)
+            let sheet = UIAlertController(
+                title: "🎵 Плейлист профиля (\(playlist.count))",
+                message: "Сейчас: \(summary.title)",
+                preferredStyle: .actionSheet
+            )
+            sheet.addAction(UIAlertAction(title: "⏭ Следующий трек", style: .default, handler: { _ in
+                GGProfileMusicPlayer.shared.next(peerId: peerId, profile: profile) {
+                    controller?.requestLayout(transition: .immediate)
+                }
+            }))
+            sheet.addAction(UIAlertAction(title: "⏮ Предыдущий трек", style: .default, handler: { _ in
+                GGProfileMusicPlayer.shared.previous(peerId: peerId, profile: profile) {
+                    controller?.requestLayout(transition: .immediate)
+                }
+            }))
+            let shufTitle = GGProfileMusicPlayer.shared.shuffleEnabled ? "🔀 Шаффл: ВКЛ (выкл)" : "🔀 Включить перемешивание"
+            sheet.addAction(UIAlertAction(title: shufTitle, style: .default, handler: { _ in
+                GGProfileMusicPlayer.shared.toggleShuffle()
+                controller?.requestLayout(transition: .immediate)
+            }))
+            sheet.addAction(UIAlertAction(title: "📋 Скопировать название", style: .default, handler: { _ in
+                GGMediaTokDiscordProfile.copyAndToast(summary.title, context: context, controller: controller)
+            }))
+            sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            guard let root = scenes.flatMap({ $0.windows }).first(where: { $0.isKeyWindow })?.rootViewController else {
+                return
+            }
+            var presenter = root
+            while let next = presenter.presentedViewController {
+                presenter = next
+            }
+            if let pop = sheet.popoverPresentationController {
+                pop.sourceView = presenter.view
+                pop.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0.0, height: 0.0)
+                pop.permittedArrowDirections = []
+            }
+            presenter.present(sheet, animated: true)
+        }
     }
 
     private static func profileMenuItems(_ info: GGPeerInfoContext) -> [ContextMenuItem] {
@@ -1496,7 +2452,7 @@ enum GGMediaTokDiscordProfile {
         let peerId = info.peer.id
         let isOwn = peerId == info.context.account.peerId
         weak let controller = info.controller
-        let title = isOwn ? "Discord-профиль / Музыка / Steam" : "Оформление профиля MediaTok"
+        let title = isOwn ? "Discord-профиль / Плейлист / Интеграции" : "Оформление профиля MediaTok"
         return [.action(ContextMenuActionItem(text: title, icon: { theme in
             return UIImage(systemName: "sparkles")?.withTintColor(theme.contextMenu.primaryColor, renderingMode: .alwaysOriginal)
         }, action: { contextController, _ in
@@ -1508,6 +2464,7 @@ enum GGMediaTokDiscordProfile {
     }
 
     static func presentOwnEditor(context: GGMenuContext) {
+        GGDiscordProfileStore.shared.activeAccountPeerId = context.context.account.peerId
         let vc = GGDiscordProfileEditorViewController(peerId: context.context.account.peerId, isOwn: true, onDone: nil)
         let nav = UINavigationController(rootViewController: vc)
         nav.modalPresentationStyle = .pageSheet
@@ -1548,35 +2505,70 @@ enum GGMediaTokDiscordProfile {
 // MARK: - Native UIKit Discord Profile Studio Editor
 
 private final class GGDiscordProfileEditorViewController: UIViewController, PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
+    private enum DocPickMode {
+        case playlistTracks
+        case voiceBioFile
+    }
+
     private let peerId: PeerId
     private let isOwn: Bool
     private let onDone: (() -> Void)?
 
     private var draft: GGDiscordProfileData
+    private var draftPlaylist: [GGProfileTrack]
     private var pendingBannerData: Data?
-    private var pendingMusicData: Data?
-    private var pendingMusicExt: String = "mp3"
+    private var pendingVoiceData: Data?
+    private var pendingVoiceExt: String = "m4a"
+    private var pickMode: DocPickMode = .playlistTracks
+
+    private var audioRecorder: AVAudioRecorder?
+    private var recordTempUrl: URL?
+    private var recordTimer: Foundation.Timer?
+    private var recordSeconds: Int = 0
 
     private let bannerPreview = UIImageView()
+    private let nitroButton = UIButton(type: .system)
     private let effectButton = UIButton(type: .system)
     private let frameButton = UIButton(type: .system)
+    private let playlistStatusLabel = UILabel()
+    private let voiceBioStatusLabel = UILabel()
+    private let recordVoiceBtn = UIButton(type: .system)
+    private let musicServiceButton = UIButton(type: .system)
+    private let musicServiceUserField = UITextField()
     private let statusField = UITextField()
-    private let musicTitleField = UITextField()
-    private let musicFileStatusLabel = UILabel()
+    private let duoUserField = UITextField()
+    private let duoLabelField = UITextField()
     private let steamField = UITextField()
     private let robloxField = UITextField()
+    private let twitchField = UITextField()
+    private let githubField = UITextField()
+    private let youtubeField = UITextField()
+    private let tiktokField = UITextField()
+    private let kickField = UITextField()
+    private let discordField = UITextField()
 
     init(peerId: PeerId, isOwn: Bool, onDone: (() -> Void)?) {
         self.peerId = peerId
         self.isOwn = isOwn
         self.onDone = onDone
-        self.draft = GGDiscordProfileStore.shared.profile(for: peerId) ?? GGDiscordProfileData()
+        let existing = GGDiscordProfileStore.shared.profile(for: peerId) ?? GGDiscordProfileData()
+        self.draft = existing
+        self.draftPlaylist = existing.effectivePlaylist
         super.init(nibName: nil, bundle: nil)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        self.stopRecording(saveIfValid: false)
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        self.stopRecording(saveIfValid: false)
     }
 
     override func viewDidLoad() {
@@ -1594,7 +2586,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
 
         let stack = UIStackView()
         stack.axis = .vertical
-        stack.spacing = 12.0
+        stack.spacing = 11.0
         stack.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(stack)
 
@@ -1606,7 +2598,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
             stack.topAnchor.constraint(equalTo: scroll.topAnchor, constant: 14.0),
             stack.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: 16.0),
             stack.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -16.0),
-            stack.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -24.0),
+            stack.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -28.0),
             stack.widthAnchor.constraint(equalTo: scroll.widthAnchor, constant: -32.0)
         ])
 
@@ -1615,8 +2607,8 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         infoLabel.font = UIFont.systemFont(ofSize: 13.0)
         infoLabel.textColor = .secondaryLabel
         infoLabel.text = self.isOwn
-            ? "Ваш 4K-баннер, эффект, рамка, ФУЛЛ-ТРЕК музыки, статус, Steam и Roblox автоматически синхронизируются для всех пользователей MediaTok!"
-            : "Локальная настройка оформления для этого профиля (или нажмите «Обновить из облака» для загрузки профиля MediaTok)."
+            ? "Ваш 4K-баннер, Nitro-градиент, рамка, бесконечный плейлист, голосовое био на аватарке, статус и все интеграции синхронизируются глобально в MediaTok!"
+            : "Локальная настройка профиля (или «Обновить из облака MediaTok»)."
         stack.addArrangedSubview(infoLabel)
 
         // Banner Preview + Buttons
@@ -1624,7 +2616,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         self.bannerPreview.contentMode = .scaleAspectFill
         self.bannerPreview.clipsToBounds = true
         self.bannerPreview.layer.cornerRadius = 12.0
-        self.bannerPreview.heightAnchor.constraint(equalToConstant: 120.0).isActive = true
+        self.bannerPreview.heightAnchor.constraint(equalToConstant: 112.0).isActive = true
         if let url = GGDiscordProfileStore.shared.bannerFileURL(for: self.draft) {
             self.bannerPreview.image = UIImage(contentsOfFile: url.path)
         }
@@ -1641,62 +2633,99 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         bannerBtns.addArrangedSubview(clearBannerBtn)
         stack.addArrangedSubview(bannerBtns)
 
-        // Effect & Avatar Frame pickers
-        stack.addArrangedSubview(self.makeSectionLabel("Анимированный эффект профиля"))
-        self.effectButton.titleLabel?.font = UIFont.systemFont(ofSize: 15.0, weight: .medium)
-        self.effectButton.backgroundColor = .secondarySystemGroupedBackground
-        self.effectButton.layer.cornerRadius = 10.0
-        self.effectButton.heightAnchor.constraint(equalToConstant: 44.0).isActive = true
-        self.effectButton.addTarget(self, action: #selector(self.pickEffectTapped), for: .touchUpInside)
+        // Nitro Theme, Effect & Avatar Frame pickers
+        stack.addArrangedSubview(self.makeSectionLabel("🎨 Nitro-тема профиля (2-цветный градиент)"))
+        self.configurePickerButton(self.nitroButton, action: #selector(self.pickNitroTapped))
+        stack.addArrangedSubview(self.nitroButton)
+
+        stack.addArrangedSubview(self.makeSectionLabel("✨ Анимированный эффект профиля"))
+        self.configurePickerButton(self.effectButton, action: #selector(self.pickEffectTapped))
         stack.addArrangedSubview(self.effectButton)
 
-        stack.addArrangedSubview(self.makeSectionLabel("Рамка на аватарку (анимация)"))
-        self.frameButton.titleLabel?.font = UIFont.systemFont(ofSize: 15.0, weight: .medium)
-        self.frameButton.backgroundColor = .secondarySystemGroupedBackground
-        self.frameButton.layer.cornerRadius = 10.0
-        self.frameButton.heightAnchor.constraint(equalToConstant: 44.0).isActive = true
-        self.frameButton.addTarget(self, action: #selector(self.pickFrameTapped), for: .touchUpInside)
+        stack.addArrangedSubview(self.makeSectionLabel("💍 Рамка на аватарку (анимация)"))
+        self.configurePickerButton(self.frameButton, action: #selector(self.pickFrameTapped))
         stack.addArrangedSubview(self.frameButton)
 
-        // Full Track Music on Profile
-        stack.addArrangedSubview(self.makeSectionLabel("🎵 Музыкальный трек на профиле (ФУЛЛ ТРЕК без обрезки)"))
-        self.configureField(self.musicTitleField, placeholder: "Название трека (напр. Miyagi — Captain)", text: self.draft.musicTitle)
-        stack.addArrangedSubview(self.musicTitleField)
+        // Voice Bio (circle ▶ button on avatar corner)
+        stack.addArrangedSubview(self.makeSectionLabel("🎙 Голосовое био (кругляш ▶ на аватарке, до 15 сек)"))
+        self.voiceBioStatusLabel.font = UIFont.systemFont(ofSize: 12.0)
+        self.voiceBioStatusLabel.textColor = .secondaryLabel
+        self.voiceBioStatusLabel.numberOfLines = 1
+        stack.addArrangedSubview(self.voiceBioStatusLabel)
 
-        self.musicFileStatusLabel.font = UIFont.systemFont(ofSize: 12.0)
-        self.musicFileStatusLabel.textColor = .secondaryLabel
-        self.musicFileStatusLabel.numberOfLines = 1
-        stack.addArrangedSubview(self.musicFileStatusLabel)
+        let voiceBtns = UIStackView()
+        voiceBtns.axis = .horizontal
+        voiceBtns.spacing = 8.0
+        voiceBtns.distribution = .fillEqually
+        self.recordVoiceBtn.setTitle("🎙 Запись", for: .normal)
+        self.recordVoiceBtn.titleLabel?.font = UIFont.systemFont(ofSize: 14.0, weight: .medium)
+        self.recordVoiceBtn.backgroundColor = .secondarySystemGroupedBackground
+        self.recordVoiceBtn.layer.cornerRadius = 10.0
+        self.recordVoiceBtn.heightAnchor.constraint(equalToConstant: 40.0).isActive = true
+        self.recordVoiceBtn.addTarget(self, action: #selector(self.recordVoiceTapped), for: .touchUpInside)
+        let pickVoiceBtn = self.makeActionButton(title: "Файл", action: #selector(self.pickVoiceFileTapped))
+        let clearVoiceBtn = self.makeActionButton(title: "Убрать", action: #selector(self.clearVoiceTapped))
+        clearVoiceBtn.setTitleColor(.systemRed, for: .normal)
+        voiceBtns.addArrangedSubview(self.recordVoiceBtn)
+        voiceBtns.addArrangedSubview(pickVoiceBtn)
+        voiceBtns.addArrangedSubview(clearVoiceBtn)
+        stack.addArrangedSubview(voiceBtns)
 
-        let musicBtns = UIStackView()
-        musicBtns.axis = .horizontal
-        musicBtns.spacing = 8.0
-        musicBtns.distribution = .fillEqually
-        let pickMusicBtn = self.makeActionButton(title: "Выбрать аудио (.mp3/.m4a)", action: #selector(self.pickMusicTapped))
-        let clearMusicBtn = self.makeActionButton(title: "Убрать трек", action: #selector(self.clearMusicTapped))
-        clearMusicBtn.setTitleColor(.systemRed, for: .normal)
-        musicBtns.addArrangedSubview(pickMusicBtn)
-        musicBtns.addArrangedSubview(clearMusicBtn)
-        stack.addArrangedSubview(musicBtns)
+        // Infinite Profile Playlist
+        stack.addArrangedSubview(self.makeSectionLabel("🎵 Бесконечный плейлист профиля (mp3/m4a/flac)"))
+        self.playlistStatusLabel.font = UIFont.systemFont(ofSize: 12.0)
+        self.playlistStatusLabel.textColor = .secondaryLabel
+        self.playlistStatusLabel.numberOfLines = 2
+        stack.addArrangedSubview(self.playlistStatusLabel)
 
-        // Custom Status
-        stack.addArrangedSubview(self.makeSectionLabel("Статус профиля (как в Discord)"))
+        let playlistBtns = UIStackView()
+        playlistBtns.axis = .horizontal
+        playlistBtns.spacing = 8.0
+        playlistBtns.distribution = .fillEqually
+        let addTracksBtn = self.makeActionButton(title: "+ Добавить треки", action: #selector(self.pickMusicTapped))
+        let manageTracksBtn = self.makeActionButton(title: "Треки / Удалить", action: #selector(self.managePlaylistTapped))
+        playlistBtns.addArrangedSubview(addTracksBtn)
+        playlistBtns.addArrangedSubview(manageTracksBtn)
+        stack.addArrangedSubview(playlistBtns)
+
+        // Live Music Service (Spotify / Yandex / VK / Apple via Last.fm or ListenBrainz)
+        stack.addArrangedSubview(self.makeSectionLabel("🎧 Живой музыкальный статус (Spotify/Яндекс/VK/Apple)"))
+        self.configurePickerButton(self.musicServiceButton, action: #selector(self.pickMusicServiceTapped))
+        stack.addArrangedSubview(self.musicServiceButton)
+        self.configureField(self.musicServiceUserField, placeholder: "Ник в Last.fm или ListenBrainz", text: self.draft.musicServiceUser)
+        self.musicServiceUserField.autocapitalizationType = .none
+        self.musicServiceUserField.autocorrectionType = .no
+        stack.addArrangedSubview(self.musicServiceUserField)
+
+        // Custom Status & Duo
+        stack.addArrangedSubview(self.makeSectionLabel("💬 Статус профиля и 💞 Пара"))
         self.configureField(self.statusField, placeholder: "Например: 🎮 Играю в CS2 / 🎧 Вайблю", text: self.draft.customStatus)
         stack.addArrangedSubview(self.statusField)
+        self.configureField(self.duoUserField, placeholder: "Ник пары в TG (напр. @username)", text: self.draft.duoUsername)
+        self.duoUserField.autocapitalizationType = .none
+        self.duoUserField.autocorrectionType = .no
+        stack.addArrangedSubview(self.duoUserField)
+        self.configureField(self.duoLabelField, placeholder: "Подпись (напр. ❤️ Моя вторая половинка)", text: self.draft.duoLabel)
+        stack.addArrangedSubview(self.duoLabelField)
 
-        // Steam Integration
-        stack.addArrangedSubview(self.makeSectionLabel("Интеграция Steam (ник / SteamID64 / ссылка)"))
-        self.configureField(self.steamField, placeholder: "Например: gaben или 76561197960287930", text: self.draft.steamInput)
-        self.steamField.autocapitalizationType = .none
-        self.steamField.autocorrectionType = .no
+        // Discord-style Connections
+        stack.addArrangedSubview(self.makeSectionLabel("🔗 Интеграции (как в Discord)"))
+        self.configureConnectionField(self.steamField, placeholder: "Steam: ник / SteamID64 / ссылка", text: self.draft.steamInput)
         stack.addArrangedSubview(self.steamField)
-
-        // Roblox Integration
-        stack.addArrangedSubview(self.makeSectionLabel("Интеграция Roblox (ник / UserID / ссылка)"))
-        self.configureField(self.robloxField, placeholder: "Например: Builderman или 156", text: self.draft.robloxInput)
-        self.robloxField.autocapitalizationType = .none
-        self.robloxField.autocorrectionType = .no
+        self.configureConnectionField(self.robloxField, placeholder: "Roblox: ник / UserID / ссылка", text: self.draft.robloxInput)
         stack.addArrangedSubview(self.robloxField)
+        self.configureConnectionField(self.twitchField, placeholder: "Twitch: канал или twitch.tv/...", text: self.draft.twitchInput)
+        stack.addArrangedSubview(self.twitchField)
+        self.configureConnectionField(self.githubField, placeholder: "GitHub: username или github.com/...", text: self.draft.githubInput)
+        stack.addArrangedSubview(self.githubField)
+        self.configureConnectionField(self.youtubeField, placeholder: "YouTube: @handle или youtube.com/@...", text: self.draft.youtubeInput)
+        stack.addArrangedSubview(self.youtubeField)
+        self.configureConnectionField(self.tiktokField, placeholder: "TikTok: @username", text: self.draft.tiktokInput)
+        stack.addArrangedSubview(self.tiktokField)
+        self.configureConnectionField(self.kickField, placeholder: "Kick: канал", text: self.draft.kickInput)
+        stack.addArrangedSubview(self.kickField)
+        self.configureConnectionField(self.discordField, placeholder: "Discord тег (напр. nick)", text: self.draft.discordTag)
+        stack.addArrangedSubview(self.discordField)
 
         if !self.isOwn {
             let syncBtn = self.makeActionButton(title: "Обновить профиль из облака MediaTok", action: #selector(self.forceSyncTapped))
@@ -1718,13 +2747,21 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         return lbl
     }
 
+    private func configurePickerButton(_ button: UIButton, action: Selector) {
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 15.0, weight: .medium)
+        button.backgroundColor = .secondarySystemGroupedBackground
+        button.layer.cornerRadius = 10.0
+        button.heightAnchor.constraint(equalToConstant: 42.0).isActive = true
+        button.addTarget(self, action: action, for: .touchUpInside)
+    }
+
     private func makeActionButton(title: String, action: Selector) -> UIButton {
         let b = UIButton(type: .system)
         b.setTitle(title, for: .normal)
-        b.titleLabel?.font = UIFont.systemFont(ofSize: 15.0, weight: .medium)
+        b.titleLabel?.font = UIFont.systemFont(ofSize: 14.0, weight: .medium)
         b.backgroundColor = .secondarySystemGroupedBackground
         b.layer.cornerRadius = 10.0
-        b.heightAnchor.constraint(equalToConstant: 42.0).isActive = true
+        b.heightAnchor.constraint(equalToConstant: 40.0).isActive = true
         b.addTarget(self, action: action, for: .touchUpInside)
         return b
     }
@@ -1738,17 +2775,42 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         tf.heightAnchor.constraint(equalToConstant: 40.0).isActive = true
     }
 
+    private func configureConnectionField(_ tf: UITextField, placeholder: String, text: String) {
+        self.configureField(tf, placeholder: placeholder, text: text)
+        tf.autocapitalizationType = .none
+        tf.autocorrectionType = .no
+    }
+
     private func refreshPickers() {
+        let nitroTitle = GGDiscordProfileStore.nitroThemes.first(where: { $0.id == self.draft.nitroThemeId })?.title ?? "Выкл."
+        self.nitroButton.setTitle("Nitro-тема: \(nitroTitle)  ▾", for: .normal)
         let effectTitle = GGDiscordProfileStore.effects.first(where: { $0.id == self.draft.effectId })?.title ?? "Выкл."
         self.effectButton.setTitle("Эффект: \(effectTitle)  ▾", for: .normal)
         let frameTitle = GGDiscordProfileStore.avatarFrames.first(where: { $0.id == self.draft.avatarFrameId })?.title ?? "Выкл."
         self.frameButton.setTitle("Рамка: \(frameTitle)  ▾", for: .normal)
-        if let data = self.pendingMusicData {
-            self.musicFileStatusLabel.text = "Выбран фулл-трек (\(data.count / 1024) КБ) — готов к загрузке"
-        } else if !self.draft.musicFileName.isEmpty || !self.draft.musicUrl.isEmpty {
-            self.musicFileStatusLabel.text = "Фулл-трек прикреплён ✅"
+        let svcTitle = GGDiscordProfileStore.musicServices.first(where: { $0.id == self.draft.musicServiceKind })?.title ?? "Выкл."
+        self.musicServiceButton.setTitle("Сервис: \(svcTitle)  ▾", for: .normal)
+
+        if self.draftPlaylist.isEmpty {
+            self.playlistStatusLabel.text = "Плейлист пуст (добавьте любое число треков или загрузите с ПК через Wi-Fi в /stickers)"
         } else {
-            self.musicFileStatusLabel.text = "Трек не выбран"
+            let names = self.draftPlaylist.prefix(3).map { $0.title }.joined(separator: " • ")
+            let tail = self.draftPlaylist.count > 3 ? " +\(self.draftPlaylist.count - 3)" : ""
+            self.playlistStatusLabel.text = "Треков в плейлисте: \(self.draftPlaylist.count) (\(names)\(tail))"
+        }
+
+        if let rec = self.audioRecorder, rec.isRecording {
+            self.voiceBioStatusLabel.text = "🔴 Идёт запись: \(self.recordSeconds)/15 сек..."
+            self.recordVoiceBtn.setTitle("⏹ Стоп (\(self.recordSeconds)с)", for: .normal)
+        } else if let pendingVoiceData {
+            self.voiceBioStatusLabel.text = "Новое голосовое био готово (\(pendingVoiceData.count / 1024) КБ) ✅"
+            self.recordVoiceBtn.setTitle("🎙 Запись", for: .normal)
+        } else if !self.draft.voiceBioFileName.isEmpty || !self.draft.voiceBioUrl.isEmpty {
+            self.voiceBioStatusLabel.text = "Голосовое био прикреплено к аватарке ✅"
+            self.recordVoiceBtn.setTitle("🎙 Записать заново", for: .normal)
+        } else {
+            self.voiceBioStatusLabel.text = "Голосовое био не задано"
+            self.recordVoiceBtn.setTitle("🎙 Запись", for: .normal)
         }
     }
 
@@ -1777,6 +2839,15 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
     }
 
     @objc private func pickMusicTapped() {
+        self.pickMode = .playlistTracks
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.audio, .mp3, .mpeg4Audio], asCopy: true)
+        picker.allowsMultipleSelection = true
+        picker.delegate = self
+        self.present(picker, animated: true)
+    }
+
+    @objc private func pickVoiceFileTapped() {
+        self.pickMode = .voiceBioFile
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.audio, .mp3, .mpeg4Audio], asCopy: true)
         picker.allowsMultipleSelection = false
         picker.delegate = self
@@ -1784,28 +2855,135 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
     }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        guard let url = urls.first,
-              let data = try? Data(contentsOf: url),
-              !data.isEmpty else {
-            return
+        switch self.pickMode {
+        case .playlistTracks:
+            for url in urls {
+                if let data = try? Data(contentsOf: url), !data.isEmpty {
+                    let ext = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
+                    let title = url.deletingPathExtension().lastPathComponent
+                    if let track = GGDiscordProfileStore.shared.savePlaylistTrack(data: data, ext: ext, title: title, for: self.peerId) {
+                        self.draftPlaylist.append(track)
+                    }
+                }
+                try? FileManager.default.removeItem(at: url)
+            }
+        case .voiceBioFile:
+            if let url = urls.first, let data = try? Data(contentsOf: url), !data.isEmpty, data.count <= 5 * 1024 * 1024 {
+                self.pendingVoiceData = data
+                self.pendingVoiceExt = url.pathExtension.isEmpty ? "m4a" : url.pathExtension
+                self.draft.voiceBioUrl = ""
+                try? FileManager.default.removeItem(at: url)
+            }
         }
-        self.pendingMusicData = data
-        self.pendingMusicExt = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
-        self.draft.musicUrl = ""
-        if (self.musicTitleField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            self.musicTitleField.text = url.deletingPathExtension().lastPathComponent
-        }
-        try? FileManager.default.removeItem(at: url)
         self.refreshPickers()
     }
 
-    @objc private func clearMusicTapped() {
-        self.pendingMusicData = nil
-        self.draft.musicFileName = ""
-        self.draft.musicUrl = ""
-        self.draft.musicTitle = ""
-        self.musicTitleField.text = ""
-        GGProfileMusicPlayer.shared.stop()
+    @objc private func managePlaylistTapped() {
+        let sheet = UIAlertController(
+            title: "🎵 Треки в плейлисте (\(self.draftPlaylist.count))",
+            message: self.draftPlaylist.isEmpty ? "Треков пока нет" : "Выберите трек для удаления или очистите плейлист",
+            preferredStyle: .actionSheet
+        )
+        for (idx, track) in self.draftPlaylist.prefix(10).enumerated() {
+            sheet.addAction(UIAlertAction(title: "🗑 \(idx + 1). \(track.title)", style: .destructive, handler: { [weak self] _ in
+                guard let strongSelf = self, idx < strongSelf.draftPlaylist.count else { return }
+                strongSelf.draftPlaylist.remove(at: idx)
+                strongSelf.refreshPickers()
+            }))
+        }
+        if !self.draftPlaylist.isEmpty {
+            sheet.addAction(UIAlertAction(title: "Очистить весь плейлист", style: .destructive, handler: { [weak self] _ in
+                self?.draftPlaylist.removeAll()
+                self?.draft.musicFileName = ""
+                self?.draft.musicUrl = ""
+                self?.draft.musicTitle = ""
+                GGProfileMusicPlayer.shared.stop()
+                self?.refreshPickers()
+            }))
+        }
+        sheet.addAction(UIAlertAction(title: "Готово", style: .cancel))
+        self.configurePopover(sheet, source: self.playlistStatusLabel)
+        self.present(sheet, animated: true)
+    }
+
+    @objc private func recordVoiceTapped() {
+        if let rec = self.audioRecorder, rec.isRecording {
+            self.stopRecording(saveIfValid: true)
+            return
+        }
+        if #available(iOS 17.0, *) {
+            AVAudioApplication.requestRecordPermission { [weak self] granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        self?.beginRecording()
+                    } else {
+                        self?.voiceBioStatusLabel.text = "Нет доступа к микрофону в Настройках iOS"
+                    }
+                }
+            }
+        } else {
+            self.beginRecording()
+        }
+    }
+
+    private func beginRecording() {
+        let _ = try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker])
+        let _ = try? AVAudioSession.sharedInstance().setActive(true)
+        let tempUrl = FileManager.default.temporaryDirectory.appendingPathComponent("mt_vbio_\(UUID().uuidString).m4a")
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVSampleRateKey: 44100.0,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+        ]
+        guard let recorder = try? AVAudioRecorder(url: tempUrl, settings: settings) else {
+            self.voiceBioStatusLabel.text = "Не удалось запустить микрофон"
+            return
+        }
+        recorder.record(forDuration: 15.0)
+        self.audioRecorder = recorder
+        self.recordTempUrl = tempUrl
+        self.recordSeconds = 0
+        self.recordTimer?.invalidate()
+        self.recordTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let strongSelf = self else { return }
+            strongSelf.recordSeconds += 1
+            if strongSelf.recordSeconds >= 15 || !(strongSelf.audioRecorder?.isRecording ?? false) {
+                strongSelf.stopRecording(saveIfValid: true)
+            } else {
+                strongSelf.refreshPickers()
+            }
+        }
+        self.refreshPickers()
+    }
+
+    private func stopRecording(saveIfValid: Bool) {
+        self.recordTimer?.invalidate()
+        self.recordTimer = nil
+        if let recorder = self.audioRecorder {
+            if recorder.isRecording {
+                recorder.stop()
+            }
+            self.audioRecorder = nil
+        }
+        if let tempUrl = self.recordTempUrl {
+            if saveIfValid, let data = try? Data(contentsOf: tempUrl), data.count > 1024, data.count <= 5 * 1024 * 1024 {
+                self.pendingVoiceData = data
+                self.pendingVoiceExt = "m4a"
+                self.draft.voiceBioUrl = ""
+            }
+            try? FileManager.default.removeItem(at: tempUrl)
+            self.recordTempUrl = nil
+        }
+        self.refreshPickers()
+    }
+
+    @objc private func clearVoiceTapped() {
+        self.stopRecording(saveIfValid: false)
+        self.pendingVoiceData = nil
+        self.draft.voiceBioFileName = ""
+        self.draft.voiceBioUrl = ""
+        GGProfileMusicPlayer.shared.stopVoiceBio()
         self.refreshPickers()
     }
 
@@ -1829,6 +3007,19 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         self.draft.bannerFileName = ""
         self.draft.bannerUrl = ""
         self.bannerPreview.image = nil
+    }
+
+    @objc private func pickNitroTapped() {
+        let sheet = UIAlertController(title: "Nitro-тема профиля", message: nil, preferredStyle: .actionSheet)
+        for item in GGDiscordProfileStore.nitroThemes {
+            sheet.addAction(UIAlertAction(title: item.title, style: .default, handler: { [weak self] _ in
+                self?.draft.nitroThemeId = item.id
+                self?.refreshPickers()
+            }))
+        }
+        sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        self.configurePopover(sheet, source: self.nitroButton)
+        self.present(sheet, animated: true)
     }
 
     @objc private func pickEffectTapped() {
@@ -1857,6 +3048,19 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         self.present(sheet, animated: true)
     }
 
+    @objc private func pickMusicServiceTapped() {
+        let sheet = UIAlertController(title: "Музыкальный сервис (живой статус)", message: nil, preferredStyle: .actionSheet)
+        for item in GGDiscordProfileStore.musicServices {
+            sheet.addAction(UIAlertAction(title: item.title, style: .default, handler: { [weak self] _ in
+                self?.draft.musicServiceKind = item.id
+                self?.refreshPickers()
+            }))
+        }
+        sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        self.configurePopover(sheet, source: self.musicServiceButton)
+        self.present(sheet, animated: true)
+    }
+
     private func configurePopover(_ sheet: UIAlertController, source: UIView) {
         if let pop = sheet.popoverPresentationController {
             pop.sourceView = source
@@ -1867,12 +3071,22 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
     @objc private func forceSyncTapped() {
         GGDiscordProfileStore.shared.checkGlobalProfile(for: self.peerId, force: true) { [weak self] in
             guard let strongSelf = self else { return }
-            strongSelf.draft = GGDiscordProfileStore.shared.profile(for: strongSelf.peerId) ?? GGDiscordProfileData()
-            strongSelf.statusField.text = strongSelf.draft.customStatus
-            strongSelf.musicTitleField.text = strongSelf.draft.musicTitle
-            strongSelf.steamField.text = strongSelf.draft.steamInput
-            strongSelf.robloxField.text = strongSelf.draft.robloxInput
-            if let url = GGDiscordProfileStore.shared.bannerFileURL(for: strongSelf.draft) {
+            let loaded = GGDiscordProfileStore.shared.profile(for: strongSelf.peerId) ?? GGDiscordProfileData()
+            strongSelf.draft = loaded
+            strongSelf.draftPlaylist = loaded.effectivePlaylist
+            strongSelf.statusField.text = loaded.customStatus
+            strongSelf.musicServiceUserField.text = loaded.musicServiceUser
+            strongSelf.duoUserField.text = loaded.duoUsername
+            strongSelf.duoLabelField.text = loaded.duoLabel
+            strongSelf.steamField.text = loaded.steamInput
+            strongSelf.robloxField.text = loaded.robloxInput
+            strongSelf.twitchField.text = loaded.twitchInput
+            strongSelf.githubField.text = loaded.githubInput
+            strongSelf.youtubeField.text = loaded.youtubeInput
+            strongSelf.tiktokField.text = loaded.tiktokInput
+            strongSelf.kickField.text = loaded.kickInput
+            strongSelf.discordField.text = loaded.discordTag
+            if let url = GGDiscordProfileStore.shared.bannerFileURL(for: loaded) {
                 strongSelf.bannerPreview.image = UIImage(contentsOfFile: url.path)
             }
             strongSelf.refreshPickers()
@@ -1881,38 +3095,60 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
     }
 
     @objc private func resetAllTapped() {
+        self.stopRecording(saveIfValid: false)
         self.pendingBannerData = nil
-        self.pendingMusicData = nil
+        self.pendingVoiceData = nil
         self.draft = GGDiscordProfileData()
+        self.draftPlaylist = []
         self.bannerPreview.image = nil
         self.statusField.text = ""
-        self.musicTitleField.text = ""
+        self.musicServiceUserField.text = ""
+        self.duoUserField.text = ""
+        self.duoLabelField.text = ""
         self.steamField.text = ""
         self.robloxField.text = ""
+        self.twitchField.text = ""
+        self.githubField.text = ""
+        self.youtubeField.text = ""
+        self.tiktokField.text = ""
+        self.kickField.text = ""
+        self.discordField.text = ""
         GGProfileMusicPlayer.shared.stop()
+        GGProfileMusicPlayer.shared.stopVoiceBio()
         self.refreshPickers()
     }
 
     @objc private func closeTapped() {
+        self.stopRecording(saveIfValid: false)
         self.dismiss(animated: true)
     }
 
     @objc private func saveTapped() {
+        self.stopRecording(saveIfValid: true)
         self.view.endEditing(true)
         self.draft.customStatus = self.statusField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        self.draft.musicTitle = self.musicTitleField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.draft.musicServiceUser = self.musicServiceUserField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.draft.duoUsername = self.duoUserField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.draft.duoLabel = self.duoLabelField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.draft.steamInput = self.steamField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.draft.robloxInput = self.robloxField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.draft.twitchInput = self.twitchField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.draft.githubInput = self.githubField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.draft.youtubeInput = self.youtubeField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.draft.tiktokInput = self.tiktokField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.draft.kickInput = self.kickField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.draft.discordTag = self.discordField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.draft.musicPlaylist = self.draftPlaylist
 
         if let data = self.pendingBannerData,
            let saved = GGDiscordProfileStore.shared.saveBannerData(data, for: self.peerId) {
             self.draft.bannerFileName = saved
             self.draft.bannerUrl = ""
         }
-        if let mData = self.pendingMusicData,
-           let savedMusic = GGDiscordProfileStore.shared.saveMusicData(mData, ext: self.pendingMusicExt, for: self.peerId) {
-            self.draft.musicFileName = savedMusic
-            self.draft.musicUrl = ""
+        if let vData = self.pendingVoiceData,
+           let savedVoice = GGDiscordProfileStore.shared.saveVoiceBioData(vData, ext: self.pendingVoiceExt, for: self.peerId) {
+            self.draft.voiceBioFileName = savedVoice
+            self.draft.voiceBioUrl = ""
         }
 
         GGDiscordProfileStore.shared.setProfile(self.draft, for: self.peerId, publishGlobally: self.isOwn)

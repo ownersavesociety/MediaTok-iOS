@@ -16,6 +16,12 @@ enum GGMediaTokSecurityTestsMain {
         Self.run("E2EV2PBKDF2AndCrossChatReplay", Self.testE2EV2PBKDF2AndCrossChatReplay)
         Self.run("AudioGuardPcmVerdicts", Self.testAudioGuardPcmVerdicts)
         Self.run("CyrillicTtfCoreTextValidation", Self.testCyrillicTtfCoreTextValidation)
+        Self.run("StickerVaultSearchAndTranslit", Self.testStickerVaultSearchAndTranslit)
+        Self.run("MaliciousDocumentAndRloInspector", Self.testMaliciousDocumentAndRloInspector)
+        Self.run("ChatStreaksAndFreezeShields", Self.testChatStreaksAndFreezeShields)
+        Self.run("CardCommandParser", Self.testCardCommandParser)
+        Self.run("MusicAndConnectionsParsers", Self.testMusicAndConnectionsParsers)
+        Self.run("LanUploaderSanitizers", Self.testLanUploaderSanitizers)
 
         print("MediaTok Security Tests Summary: \(Self.passed) passed, \(Self.failed) failed")
         if Self.failed > 0 {
@@ -237,5 +243,88 @@ enum GGMediaTokSecurityTestsMain {
         Self.check(!ps1.isEmpty && !ps1.contains("?"), "PostScript name #1 must be valid ASCII, got '\(ps1)'")
         Self.check(!ps2.isEmpty && !ps2.contains("?"), "PostScript name #2 must be valid ASCII, got '\(ps2)'")
         Self.check(ps1 != ps2, "Two Cyrillic fonts must receive unique PostScript names (\(ps1) vs \(ps2))")
+    }
+
+    private static func testStickerVaultSearchAndTranslit() {
+        let entries: [GGMediaTokCoreLogic.StickerEntry] = [
+            .init(id: "1", fileName: "mellstroy_dance.webp", tags: ["mellstroy", "казино", "мем"], ocrText: "ДЕНЬГИ СЮДА", visionLabels: ["person"], addedAt: 100, usageCount: 15),
+            .init(id: "2", fileName: "gojo.webp", tags: ["anime", "jjk", "годжо"], ocrText: "", visionLabels: ["cartoon", "аниме"], addedAt: 200, usageCount: 4),
+            .init(id: "3", fileName: "cat_sad.webp", tags: ["грустный"], ocrText: "плачу", visionLabels: ["cat", "кот"], addedAt: 300, usageCount: 20)
+        ]
+
+        let mell = GGMediaTokCoreLogic.searchStickers(entries, query: "меллстрой")
+        Self.check(mell.first?.id == "1", "Cyrillic 'меллстрой' must find Latin 'mellstroy' via translit")
+
+        let narutoStyle = GGMediaTokCoreLogic.searchStickers(entries, query: "аниме")
+        Self.check(narutoStyle.first?.id == "2", "Russian 'аниме' must match anime sticker")
+
+        let catOcr = GGMediaTokCoreLogic.searchStickers(entries, query: "плачу")
+        Self.check(catOcr.first?.id == "3", "OCR text search must match 'плачу'")
+
+        let visionMap = GGMediaTokCoreLogic.visionLabelToRussianTags("domestic_cat")
+        Self.check(visionMap.contains("кот"), "Vision label mapping must include Russian tag 'кот'")
+    }
+
+    private static func testMaliciousDocumentAndRloInspector() {
+        Self.check(GGMediaTokCoreLogic.inspectIncomingDocument(fileName: "report.pdf", mimeType: "application/pdf") == nil, "normal PDF is safe")
+
+        let rlo = GGMediaTokCoreLogic.inspectIncomingDocument(fileName: "photo_\u{202E}gpj.exe", mimeType: "application/octet-stream")
+        Self.check(rlo?.isCritical == true, "RLO BiDi filename spoofing must be flagged critical")
+
+        let doubleExt = GGMediaTokCoreLogic.inspectIncomingDocument(fileName: "nude.jpg.exe", mimeType: "application/octet-stream")
+        Self.check(doubleExt?.isCritical == true, "double extension .jpg.exe must be flagged critical")
+
+        let apkMime = GGMediaTokCoreLogic.inspectIncomingDocument(fileName: "update.bin", mimeType: "application/vnd.android.package-archive")
+        Self.check(apkMime?.isCritical == true, "APK MIME type must trigger threat alert")
+    }
+
+    private static func testChatStreaksAndFreezeShields() {
+        let day1 = GGMediaTokCoreLogic.applyStreakActivity(record: nil, dayKey: "2026-11-01", monthKey: "2026-11")
+        Self.check(day1.updated.currentStreak == 1 && day1.updated.freezesRemaining == 2, "Day 1 initializes streak=1 and 2 freezes")
+
+        let day2 = GGMediaTokCoreLogic.applyStreakActivity(record: day1.updated, dayKey: "2026-11-02", monthKey: "2026-11")
+        Self.check(day2.updated.currentStreak == 2 && !day2.usedFreeze, "Consecutive day increments streak without freeze")
+
+        let skippedOneDay = GGMediaTokCoreLogic.applyStreakActivity(record: day2.updated, dayKey: "2026-11-04", monthKey: "2026-11")
+        Self.check(skippedOneDay.updated.currentStreak == 3 && skippedOneDay.usedFreeze && skippedOneDay.updated.freezesRemaining == 1, "Missed 1 day spends freeze and keeps streak")
+
+        let missedMany = GGMediaTokCoreLogic.applyStreakActivity(record: skippedOneDay.updated, dayKey: "2026-11-10", monthKey: "2026-11")
+        Self.check(missedMany.updated.currentStreak == 1 && missedMany.updated.bestStreak == 3, "Missed >2 days resets streak to 1 preserving bestStreak")
+
+        let nextMonth = GGMediaTokCoreLogic.applyStreakActivity(record: missedMany.updated, dayKey: "2026-12-01", monthKey: "2026-12")
+        Self.check(nextMonth.updated.freezesRemaining == 2, "New month resets freezesRemaining back to 2")
+        Self.check(GGMediaTokCoreLogic.streakTierBadge(days: 365) == "🌈", "365d tier badge must be rainbow")
+    }
+
+    private static func testCardCommandParser() {
+        let card = GGMediaTokCoreLogic.parseCardCommand(".card MediaTok | iOS 27 Ghost | Версия 5.0 | 4K 60fps")
+        Self.check(card?.title == "MediaTok", "card title parsed")
+        Self.check(card?.subtitle == "iOS 27 Ghost", "card subtitle parsed")
+        Self.check(card?.lines.count == 2, "card body lines parsed")
+        Self.check(GGMediaTokCoreLogic.parseCardCommand(".card    ") == nil, "empty card command returns nil")
+    }
+
+    private static func testMusicAndConnectionsParsers() {
+        let lbJson = Data("""
+        {"payload":{"playing_now":true,"listens":[{"playing_now":true,"track_metadata":{"artist_name":"Miyagi & Andy Panda","track_name":"Kosandra"}}]}}
+        """.utf8)
+        let lb = GGMediaTokCoreLogic.parseListenBrainzJson(lbJson)
+        Self.check(lb?.artist == "Miyagi & Andy Panda" && lb?.track == "Kosandra" && lb?.isLive == true, "ListenBrainz playing-now parsed")
+
+        let lastFmHtml = """
+        <table><tbody><tr class="chartlist-row chartlist-now-scrobbling"><td class="chartlist-name"><a href="/track">Nightcall</a></td><td class="chartlist-artist"><a href="/artist">Kavinsky</a></td></tr></tbody></table>
+        """
+        let lf = GGMediaTokCoreLogic.parseLastFmHtml(lastFmHtml)
+        Self.check(lf?.artist == "Kavinsky" && lf?.track == "Nightcall" && lf?.isLive == true, "Last.fm HTML now playing parsed")
+
+        Self.check(GGMediaTokCoreLogic.normalizeConnection(platform: "twitch", raw: "https://www.twitch.tv/s1mple")?.handle == "s1mple", "Twitch URL normalized")
+        Self.check(GGMediaTokCoreLogic.normalizeConnection(platform: "github", raw: "../../../etc/passwd") == nil, "GitHub traversal rejected")
+        Self.check(GGMediaTokCoreLogic.normalizeConnection(platform: "youtube", raw: "user@evil.com") == nil, "YouTube userinfo injection rejected")
+    }
+
+    private static func testLanUploaderSanitizers() {
+        Self.check(GGMediaTokCoreLogic.sanitizeUploadFileName("../../etc/passwd\0.png") == "passwd.png", "path traversal & null stripped")
+        Self.check(GGMediaTokCoreLogic.constantTimeEquals("4829", "4829"), "constantTimeEquals matches identical PIN")
+        Self.check(!GGMediaTokCoreLogic.constantTimeEquals("4829", "4820"), "constantTimeEquals rejects mismatched PIN")
     }
 }

@@ -770,13 +770,21 @@ enum GGMediaTokWave4Tools {
         }
     }
 
-    // MARK: - 5. Profile Dossier (Private Note + Automatic Nick/Username Change History)
+    // MARK: - 5. Profile Dossier (Opt-in Private Note + Automatic Nick/Username Change History)
+
+    private static let dossierEnabledKey = "mediatok.dossier.enabled.v1"
+
+    static var isDossierEnabled: Bool {
+        get { return UserDefaults.standard.bool(forKey: GGMediaTokWave4Tools.dossierEnabledKey) }
+        set { UserDefaults.standard.set(newValue, forKey: GGMediaTokWave4Tools.dossierEnabledKey) }
+    }
 
     private static func peerKey(_ peerId: PeerId) -> String {
         return "\(peerId.namespace._internalGetInt32Value())_\(peerId.id._internalGetInt64Value())"
     }
 
     private static func dossierRows(_ info: GGPeerInfoContext) -> [GGPeerInfoRow] {
+        guard GGMediaTokWave4Tools.isDossierEnabled else { return [] }
         let peer = info.peer
         let key = GGMediaTokWave4Tools.peerKey(peer.id)
         let currentIdentity = "\(peer.debugDisplayTitle) (@\(peer.addressName ?? "нет"))"
@@ -818,7 +826,7 @@ enum GGMediaTokWave4Tools {
     }
 
     private static func dossierMenuItems(_ info: GGPeerInfoContext) -> [ContextMenuItem] {
-        if info.isSettings { return [] }
+        guard GGMediaTokWave4Tools.isDossierEnabled, !info.isSettings else { return [] }
         let peerId = info.peer.id
         weak let controller = info.controller
         return [.action(ContextMenuActionItem(
@@ -867,9 +875,10 @@ enum GGMediaTokWave4Tools {
     static func presentHub(context: GGMenuContext) {
         let afkState = GGMediaTokWave4Tools.isAfkEnabled ? "ВКЛ" : "ВЫКЛ"
         let soundState = GGMediaTokWave4Tools.isWallpaperSoundEnabled ? "ВКЛ" : "ВЫКЛ"
+        let dossierState = GGMediaTokWave4Tools.isDossierEnabled ? "ВКЛ" : "ВЫКЛ"
         let sheet = UIAlertController(
             title: "⚡ Фичи MediaTok Wave 4",
-            message: "• .q <текст> (или долгий тап по сообщению → «В стикер-цитату») — генератор прозрачных стикеров-цитат за 0.1 сек без ботов\n• .stats — стикер-инфографика чата\n• Долгий тап по фото → «Скопировать текст (OCR)» и «В стикер без фона»\n• Долгий тап по сообщению → «Напомнить»\n• Авто-история старых ников/юзернеймов + личное досье в каждом профиле\n• Анти-IP-Логгер ссылок",
+            message: "• .q <текст> (или долгий тап по сообщению → «В стикер-цитату») — генератор прозрачных стикеров-цитат за 0.1 сек без ботов\n• .stats — стикер-инфографика чата\n• Долгий тап по фото → «Скопировать текст (OCR)» и «В стикер без фона»\n• Долгий тап по сообщению → «Напомнить»\n• Анти-IP-Логгер ссылок",
             preferredStyle: .actionSheet
         )
         sheet.addAction(UIAlertAction(title: "🤖 AFK-автоответчик в личке (\(afkState))", style: .default, handler: { _ in
@@ -878,6 +887,10 @@ enum GGMediaTokWave4Tools {
         sheet.addAction(UIAlertAction(title: "🔊 Звук живых обоев чата (\(soundState))", style: .default, handler: { _ in
             GGMediaTokWave4Tools.isWallpaperSoundEnabled.toggle()
             context.presentToast("Звук живых обоев: \(GGMediaTokWave4Tools.isWallpaperSoundEnabled ? "ВКЛ" : "ВЫКЛ")")
+        }))
+        sheet.addAction(UIAlertAction(title: "🕵️ Личное досье и история ников (\(dossierState))", style: .default, handler: { _ in
+            GGMediaTokWave4Tools.isDossierEnabled.toggle()
+            context.presentToast("Личное досье в профилях: \(GGMediaTokWave4Tools.isDossierEnabled ? "ВКЛ" : "ВЫКЛ")")
         }))
         sheet.addAction(UIAlertAction(title: "Готово", style: .cancel))
         context.presentNative(sheet)

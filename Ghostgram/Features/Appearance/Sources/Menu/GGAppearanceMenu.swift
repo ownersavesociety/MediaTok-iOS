@@ -172,7 +172,7 @@ enum GGAppearanceMenu {
             }
         ))
 
-        // Quick cheat-sheet & Wave 4 tools (.q quote stickers, .stats, AFK, OCR, Cutout stickers, Dossier, Wallpaper sound).
+        // Quick cheat-sheet & Wave 4 tools (.q quote stickers, .stats, AFK, OCR, Cutout stickers, Wallpaper sound).
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.commands",
             section: .main(of: tab),
@@ -183,6 +183,56 @@ enum GGAppearanceMenu {
                 GGMediaTokWave4Tools.presentHub(context: context)
             }),
             searchKeywords: { [GGStrings.Appearance.Commands.keywords] }
+        ))
+
+        // Wave 5: /stickers 10K AI Vault + PC Wi-Fi Uploader
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.stickerVault",
+            section: .main(of: tab),
+            order: 212,
+            title: { "🎭 /stickers — База 10к стикеров + ИИ-поиск" },
+            subtitle: { "Команды /s и /s!, OCR и Vision AI, загрузка папок с ПК по Wi-Fi" },
+            kind: .action({ context in
+                GGMediaTokStickerVault.presentManagerFromMenu(context: context)
+            }),
+            searchKeywords: { ["stickers", "стикеры", "поиск", "ии", "ai", "wifi"] },
+            label: { _ in
+                let c = GGStickerVaultStore.shared.count
+                return c > 0 ? "\(c)" : "10K"
+            }
+        ))
+
+        // Wave 5: Liquid Glass iOS 27 / Zero-Bloat / Compact / Checkmarks / 4K 60fps
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.liquidUi",
+            section: .main(of: tab),
+            order: 214,
+            title: { "🧊 Liquid Glass / Zero-Bloat / Галочки / 4K 60fps" },
+            subtitle: { "Стекло iOS 27, убрать лишнее, компактный чат, стиль галочек, видео 4K" },
+            kind: .action({ context in
+                GGMediaTokLiquidUI.presentStudio(context: context)
+            }),
+            searchKeywords: { ["glass", "liquid", "bloat", "4k", "60fps", "галочки", "стекло", "видео"] },
+            label: { _ in
+                return GGMediaTokLiquidUI.isVideo4k60Enabled ? "4K60" : "iOS27"
+            }
+        ))
+
+        // Wave 5: Streaks / Clipboard / Guards / Metadata Stripper / Games / Updater
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.wave5Hub",
+            section: .main(of: tab),
+            order: 216,
+            title: { "🔥 Огоньки / Буфер / Защита / Игры / Обновления" },
+            subtitle: { "Серии чатов, история буфера обмена, EXIF/PDF, подтверждения, 2048, ESign" },
+            kind: .action({ context in
+                GGMediaTokWave5Tools.presentHub(context: context)
+            }),
+            searchKeywords: { ["огоньки", "streak", "буфер", "clipboard", "games", "игры", "esign", "обновления"] },
+            label: { _ in
+                let top = GGMediaTokStreaks.topStreaks(limit: 1).first?.record.currentStreak ?? 0
+                return top > 0 ? "🔥\(top)" : "W5"
+            }
         ))
 
         // Bubbles.

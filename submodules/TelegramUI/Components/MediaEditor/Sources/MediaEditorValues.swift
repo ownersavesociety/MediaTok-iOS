@@ -128,6 +128,10 @@ public struct MediaAudioTrackSamples: Equatable {
     }
 }
 
+private var ggMediaTokVideo4k60Enabled: Bool {
+    return UserDefaults.standard.bool(forKey: "mediatok.video.4k60.v1")
+}
+
 public enum MediaQualityPreset: Int32 {
     case compressedDefault
     case compressedVeryLow
@@ -163,9 +167,9 @@ public enum MediaQualityPreset: Int32 {
         case .compressedMedium:
             return 848.0
         case .compressedHigh:
-            return 1280.0
+            return ggMediaTokVideo4k60Enabled ? 1920.0 : 1280.0
         case .compressedVeryHigh:
-            return 1920.0
+            return ggMediaTokVideo4k60Enabled ? 3840.0 : 1920.0
         case .videoMessage:
             // GHOST: side of the round video from its settings; upstream's by default.
             return GGRoundVideoConfig.exportSide(VideoMessageExportSettings.maximumDimension)
@@ -189,9 +193,9 @@ public enum MediaQualityPreset: Int32 {
         case .compressedMedium:
             return 1600
         case .compressedHigh:
-            return 3000
+            return ggMediaTokVideo4k60Enabled ? 10000 : 3000
         case .compressedVeryHigh:
-            return 6600
+            return ggMediaTokVideo4k60Enabled ? 22000 : 6600
         case .videoMessage:
             // GHOST: bitrate of the round video from its settings; 1200 (upstream) by default.
             return GGRoundVideoConfig.exportBitrate(1200)
@@ -214,7 +218,9 @@ public enum MediaQualityPreset: Int32 {
         switch self {
         case .compressedVeryLow, .compressedLow:
             return 32
-        case .compressedMedium, .compressedHigh, .compressedVeryHigh, .videoMessage:
+        case .compressedHigh, .compressedVeryHigh:
+            return ggMediaTokVideo4k60Enabled ? 192 : 64
+        case .compressedMedium, .videoMessage:
             return 64
         default:
             return 0
@@ -1999,8 +2005,17 @@ public func recommendedVideoExportConfiguration(values: MediaEditorValues, durat
             videoBitrate = GGRoundVideoConfig.exportBitrate(settings.bitrateKbps)
         } else {
             let maxSize = CGSize(width: qualityPreset.maximumDimensions, height: qualityPreset.maximumDimensions)
-            resultSize = targetSize(cropSize: cropSize.aspectFitted(maxSize), rotateSideward: rotateSideward)
+            let fittedSize: CGSize
+            if ggMediaTokVideo4k60Enabled && (qualityPreset == .compressedHigh || qualityPreset == .compressedVeryHigh) && max(cropSize.width, cropSize.height) <= maxSize.width {
+                fittedSize = cropSize
+            } else {
+                fittedSize = cropSize.aspectFitted(maxSize)
+            }
+            resultSize = targetSize(cropSize: fittedSize, rotateSideward: rotateSideward)
             videoBitrate = qualityPreset.videoBitrateKbps
+            if ggMediaTokVideo4k60Enabled && qualityPreset == .compressedVeryHigh && frameRate < 60.0 {
+                frameRate = 60.0
+            }
         }
         
         width = Int(resultSize.width)
