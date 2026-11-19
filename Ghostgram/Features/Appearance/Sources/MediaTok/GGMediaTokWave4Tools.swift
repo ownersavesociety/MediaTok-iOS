@@ -1,5 +1,7 @@
 import Foundation
 import UIKit
+import CoreImage
+import ImageIO
 import Vision
 import AVFoundation
 import UserNotifications
@@ -34,13 +36,19 @@ enum GGMediaTokWave4Tools {
     private static let dossierHistoryKey = "mediatok.dossier.history.v1"
 
     private static var wallpaperAudioPlayer: AVAudioPlayer?
+    private static let afkLock = NSLock()
     private static var lastAfkReplyAt: [Int64: TimeInterval] = [:]
+    private static var activeChatPeerId: PeerId?
 
-    private static let ipLoggerDomains: [String] = [
-        "grabify.link", "iplogger.org", "iplogger.com", "iplogger.ru", "2no.co",
-        "yip.su", "blasze.tk", "blasze.com", "ps3cfw.com", "bmwforum.co",
-        "leancoding.co", "stopify.co", "freegiftcards.co", "joinmy.site", "curiouscat.club"
-    ]
+    private static func setActiveChat(_ peerId: PeerId?, active: Bool) {
+        GGMediaTokWave4Tools.afkLock.lock()
+        if active {
+            GGMediaTokWave4Tools.activeChatPeerId = peerId
+        } else if GGMediaTokWave4Tools.activeChatPeerId == peerId {
+            GGMediaTokWave4Tools.activeChatPeerId = nil
+        }
+        GGMediaTokWave4Tools.afkLock.unlock()
+    }
 
     static func register() {
         // 1. Outgoing `.q` quote-sticker & `.stats` infographic sticker
@@ -72,12 +80,14 @@ enum GGMediaTokWave4Tools {
             return GGMediaTokWave4Tools.dossierMenuItems(info)
         }, order: 85)
 
-        // 6. Live Video Wallpaper Sound lifecycle in chats
-        GGChatScreenHooks.lifecycle.register({ event, _ in
+        // 6. Live Video Wallpaper Sound & active chat tracking for AFK
+        GGChatScreenHooks.lifecycle.register({ event, screen in
             switch event {
             case .didAppear:
+                GGMediaTokWave4Tools.setActiveChat(screen.chatLocation.peerId, active: true)
                 GGMediaTokWave4Tools.updateWallpaperSoundPlayback(inChat: true)
             case .willDisappear:
+                GGMediaTokWave4Tools.setActiveChat(screen.chatLocation.peerId, active: false)
                 GGMediaTokWave4Tools.updateWallpaperSoundPlayback(inChat: false)
             case .willAppear:
                 break
@@ -153,7 +163,9 @@ enum GGMediaTokWave4Tools {
                         author = "MediaTok Quote"
                         quoteText = body
                     }
-                    renderedSticker = GGMediaTokWave4Tools.renderQuoteSticker(author: author.isEmpty ? "MediaTok" : author, text: quoteText)
+                    if !quoteText.isEmpty {
+                        renderedSticker = GGMediaTokWave4Tools.renderQuoteSticker(author: author.isEmpty ? "MediaTok" : author, text: quoteText)
+                    }
                 }
             } else if lower == ".stats" || lower.hasPrefix(".stats ") {
                 let title = lower.hasPrefix(".stats ") ? String(trimmed.dropFirst(7)).trimmingCharacters(in: .whitespacesAndNewlines) : "MediaTok Chat"
@@ -535,35 +547,81 @@ enum GGMediaTokWave4Tools {
         })
     }
 
+    private static func cgImageOrientation(from uiOrientation: UIImage.Orientation) -> CGImagePropertyOrientation {
+        switch uiOrientation {
+        case .up: return .up
+        case .down: return .down
+        case .left: return .left
+        case .right: return .right
+        case .upMirrored: return .upMirrored
+        case .downMirrored: return .downMirrored
+        case .leftMirrored: return .leftMirrored
+        case .rightMirrored: return .rightMirrored
+        @unknown default: return .up
+        }
+    }
+
     private static func makeStickerCanvas512(from image: UIImage) -> UIImage {
+        var subjectImage = image
+        var hasTransparentCutout = false
+
+        if #available(iOS 17.0, *), let cgImage = image.cgImage {
+            let request = VNGenerateForegroundInstanceMaskRequest()
+            let orientation = GGMediaTokWave4Tools.cgImageOrientation(from: image.imageOrientation)
+            let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
+            if (try? handler.perform([request])) != nil,
+               let obs = request.results?.first,
+               let maskedBuffer = try? obs.generateMaskedImage(
+                   ofInstances: obs.allInstances,
+                   from: handler,
+                   croppedToInstancesExtent: true
+               ) {
+                let ciImage = CIImage(cvPixelBuffer: maskedBuffer)
+                let ciContext = CIContext(options: nil)
+                if let outCG = ciContext.createCGImage(ciImage, from: ciImage.extent) {
+                    subjectImage = UIImage(cgImage: outCG)
+                    hasTransparentCutout = true
+                }
+            }
+        }
+
         let size = CGSize(width: 512.0, height: 512.0)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1.0
         format.opaque = false
 
-        let aspect = image.size.width / max(1.0, image.size.height)
-        let drawW: CGFloat = aspect >= 1.0 ? 484.0 : 484.0 * aspect
-        let drawH: CGFloat = aspect >= 1.0 ? 484.0 / aspect : 484.0
+        let aspect = subjectImage.size.width / max(1.0, subjectImage.size.height)
+        let maxSide: CGFloat = hasTransparentCutout ? 472.0 : 484.0
+        let drawW: CGFloat = aspect >= 1.0 ? maxSide : maxSide * aspect
+        let drawH: CGFloat = aspect >= 1.0 ? maxSide / aspect : maxSide
         let drawRect = CGRect(x: (512.0 - drawW) / 2.0, y: (512.0 - drawH) / 2.0, width: drawW, height: drawH)
 
         return UIGraphicsImageRenderer(size: size, format: format).image { ctx in
             let cg = ctx.cgContext
-            let path = UIBezierPath(roundedRect: drawRect, cornerRadius: 34.0)
-            cg.saveGState()
-            cg.setShadow(offset: .zero, blur: 12.0, color: UIColor(rgb: 0x00F5FF).withAlphaComponent(0.75).cgColor)
-            UIColor.white.setStroke()
-            path.lineWidth = 6.0
-            path.stroke()
-            cg.restoreGState()
+            if hasTransparentCutout {
+                cg.saveGState()
+                cg.setShadow(offset: .zero, blur: 10.0, color: UIColor.white.withAlphaComponent(0.88).cgColor)
+                subjectImage.draw(in: drawRect)
+                cg.restoreGState()
+                subjectImage.draw(in: drawRect)
+            } else {
+                let path = UIBezierPath(roundedRect: drawRect, cornerRadius: 34.0)
+                cg.saveGState()
+                cg.setShadow(offset: .zero, blur: 12.0, color: UIColor(rgb: 0x00F5FF).withAlphaComponent(0.75).cgColor)
+                UIColor.white.setStroke()
+                path.lineWidth = 6.0
+                path.stroke()
+                cg.restoreGState()
 
-            cg.saveGState()
-            path.addClip()
-            image.draw(in: drawRect)
-            cg.restoreGState()
+                cg.saveGState()
+                path.addClip()
+                subjectImage.draw(in: drawRect)
+                cg.restoreGState()
 
-            UIColor.white.setStroke()
-            path.lineWidth = 5.0
-            path.stroke()
+                UIColor.white.setStroke()
+                path.lineWidth = 5.0
+                path.stroke()
+            }
         }
     }
 
@@ -578,15 +636,25 @@ enum GGMediaTokWave4Tools {
         for (title, sec) in choices {
             sheet.addAction(UIAlertAction(title: title, style: .default, handler: { _ in
                 let center = UNUserNotificationCenter.current()
-                center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
-                let content = UNMutableNotificationContent()
-                content.title = "⏰ Напоминание MediaTok (\(author))"
-                content.body = String(text.prefix(200))
-                content.sound = .default
-                let trigger = UNTimeIntervalNotificationTrigger(timeInterval: sec, repeats: false)
-                let req = UNNotificationRequest(identifier: "mt_rem_\(UUID().uuidString)", content: content, trigger: trigger)
-                center.add(req, withCompletionHandler: nil)
-                GGMediaTokWave4Tools.showToast(context: context, text: "⏰ Напоминание поставлено: \(title)")
+                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                    if !granted {
+                        GGMediaTokWave4Tools.showToast(context: context, text: "⚠️ Включите уведомления MediaTok в Настройках iPhone")
+                        return
+                    }
+                    let content = UNMutableNotificationContent()
+                    content.title = "⏰ Напоминание MediaTok (\(author))"
+                    content.body = String(text.prefix(200))
+                    content.sound = .default
+                    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: sec, repeats: false)
+                    let req = UNNotificationRequest(identifier: "mt_rem_\(UUID().uuidString)", content: content, trigger: trigger)
+                    center.add(req) { error in
+                        if error != nil {
+                            GGMediaTokWave4Tools.showToast(context: context, text: "⚠️ Ошибка планирования напоминания")
+                        } else {
+                            GGMediaTokWave4Tools.showToast(context: context, text: "⏰ Напоминание поставлено: \(title)")
+                        }
+                    }
+                }
             }))
         }
         sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
@@ -635,31 +703,56 @@ enum GGMediaTokWave4Tools {
 
     private static func decorateMessage(_ decoration: inout GGMessageDecoration, message: Message, context: AccountContext) {
         let text = message.text
-        if !text.isEmpty {
-            let lower = text.lowercased()
-            for domain in GGMediaTokWave4Tools.ipLoggerDomains {
-                if lower.contains(domain) {
-                    decoration.footnote = GGMessageFootnote(
-                        text: "🚨 ОПАСНО (Анти-Логгер MediaTok): ссылка ведёт на IP-логгер (\(domain))! Не переходите без VPN.",
-                        entities: [],
-                        alpha: 0.95
-                    )
-                    break
+        var extraUrls: [String] = []
+        for attr in message.attributes {
+            if let entitiesAttr = attr as? TextEntitiesMessageAttribute {
+                for entity in entitiesAttr.entities {
+                    if case let .TextUrl(url) = entity.type {
+                        extraUrls.append(url)
+                    }
                 }
             }
         }
+        if !text.isEmpty || !extraUrls.isEmpty {
+            if let domain = GGMediaTokCoreLogic.detectIpLoggerHost(text: text, extraUrls: extraUrls) {
+                decoration.footnote = GGMessageFootnote(
+                    text: "🚨 ОПАСНО (Анти-Логгер MediaTok): ссылка ведёт на IP-логгер (\(domain))! Не переходите без VPN.",
+                    entities: [],
+                    alpha: 0.95
+                )
+            }
+        }
 
-        // AFK auto-responder on fresh incoming private messages (within last 25 seconds, 30-min cooldown per peer)
+        // AFK auto-responder on fresh incoming private messages (excludes bots & currently open chat; 30-min cooldown per peer)
         if GGMediaTokWave4Tools.isAfkEnabled,
            message.flags.contains(.Incoming),
            message.id.peerId.namespace == Namespaces.Peer.CloudUser,
            message.id.peerId != context.account.peerId {
+            let isBotAuthor = (message.author as? TelegramUser)?.botInfo != nil
+            let isBotPeer = (message.peers[message.id.peerId] as? TelegramUser)?.botInfo != nil
+            guard !isBotAuthor && !isBotPeer else { return }
+
             let now = Date().timeIntervalSince1970
             let msgAge = now - Double(message.timestamp)
+            guard msgAge >= -10.0 && msgAge <= 25.0 else { return }
+
             let rawPeer = message.id.peerId.id._internalGetInt64Value()
-            let prevReply = GGMediaTokWave4Tools.lastAfkReplyAt[rawPeer] ?? 0.0
-            if msgAge >= -10.0 && msgAge <= 25.0 && (now - prevReply) > 1800.0 {
-                GGMediaTokWave4Tools.lastAfkReplyAt[rawPeer] = now
+            var shouldSendReply = false
+            GGMediaTokWave4Tools.afkLock.lock()
+            let isActiveOpenChat = (GGMediaTokWave4Tools.activeChatPeerId == message.id.peerId)
+            if !isActiveOpenChat {
+                let prevReply = GGMediaTokWave4Tools.lastAfkReplyAt[rawPeer] ?? 0.0
+                if (now - prevReply) > 1800.0 {
+                    if GGMediaTokWave4Tools.lastAfkReplyAt.count > 512 {
+                        GGMediaTokWave4Tools.lastAfkReplyAt.removeAll()
+                    }
+                    GGMediaTokWave4Tools.lastAfkReplyAt[rawPeer] = now
+                    shouldSendReply = true
+                }
+            }
+            GGMediaTokWave4Tools.afkLock.unlock()
+
+            if shouldSendReply {
                 let replyMsg: EnqueueMessage = .message(
                     text: GGMediaTokWave4Tools.afkText,
                     attributes: [],

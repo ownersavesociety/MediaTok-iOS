@@ -138,7 +138,7 @@ final class GGProfileMusicPlayer {
         let targetURL: URL?
         if let local = GGDiscordProfileStore.shared.musicFileURL(for: profile) {
             targetURL = local
-        } else if profile.musicUrl.hasPrefix("https://"), let remote = URL(string: profile.musicUrl) {
+        } else if let remote = GGMediaTokCoreLogic.isAllowedMediaURL(profile.musicUrl) {
             targetURL = remote
         } else {
             targetURL = nil
@@ -190,6 +190,8 @@ final class GGDiscordProfileStore {
     ]
 
     private let lock = NSLock()
+    private let ownPeersDefaultsKey = "mediatok.discord.own_peers.v1"
+    private let heartbeatDefaultsKey = "mediatok.discord.last_heartbeat.v1"
     private var loaded = false
     private var entries: [String: GGDiscordProfileData] = [:]
     private var lastSyncCheck: [String: TimeInterval] = [:]
@@ -197,6 +199,31 @@ final class GGDiscordProfileStore {
     private var revisionCounter: Int32 = 0
 
     private init() {}
+
+    private func ownPeersSet() -> Set<String> {
+        return Set(UserDefaults.standard.stringArray(forKey: self.ownPeersDefaultsKey) ?? [])
+    }
+
+    private func markOwnPeer(_ key: String, isOwn: Bool) {
+        var set = self.ownPeersSet()
+        if isOwn {
+            set.insert(key)
+        } else {
+            set.remove(key)
+        }
+        UserDefaults.standard.set(Array(set), forKey: self.ownPeersDefaultsKey)
+    }
+
+    private func lastHeartbeat(for key: String) -> TimeInterval {
+        let dict = (UserDefaults.standard.dictionary(forKey: self.heartbeatDefaultsKey) as? [String: Double]) ?? [:]
+        return dict[key] ?? 0.0
+    }
+
+    private func updateHeartbeat(for key: String, ts: TimeInterval) {
+        var dict = (UserDefaults.standard.dictionary(forKey: self.heartbeatDefaultsKey) as? [String: Double]) ?? [:]
+        dict[key] = ts
+        UserDefaults.standard.set(dict, forKey: self.heartbeatDefaultsKey)
+    }
 
     var revisionSignal: Signal<Int32, NoError> {
         return self.revisionPromise.get()
@@ -295,7 +322,7 @@ final class GGDiscordProfileStore {
     func saveMusicData(_ data: Data, ext: String, for peerId: PeerId) -> String? {
         let dir = self.musicDir()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let cleanExt = ext.isEmpty ? "mp3" : ext.lowercased()
+        let cleanExt = GGMediaTokCoreLogic.sanitizeAudioExtension(ext)
         let fileName = "track_\(GGDiscordProfileStore.keyString(for: peerId))_\(Int64(Date().timeIntervalSince1970 * 1000.0)).\(cleanExt)"
         let url = dir.appendingPathComponent(fileName)
         do {
@@ -331,11 +358,88 @@ final class GGDiscordProfileStore {
         self.lock.unlock()
 
         if publishGlobally {
-            self.publishGlobalProfile(updated, for: peerId)
+            self.markOwnPeer(key, isOwn: !updated.isEmpty)
+            self.updateHeartbeat(for: key, ts: Date().timeIntervalSince1970)
+            if !updated.isEmpty {
+                self.publishGlobalProfile(updated, for: peerId)
+            }
         }
     }
 
-    // MARK: - Catbox + ntfy Global Sync (4K Banner + Full Track Music)
+    // MARK: - Catbox + ntfy Global Sync (4K Banner + Full Track Music, Hardened)
+
+    private static func downloadLimitedData(from url: URL, maxBytes: Int64, completion: @escaping (Data?) -> Void) {
+        let req = URLRequest(url: url, timeoutInterval: 45.0)
+        URLSession.shared.downloadTask(with: req) { tempUrl, response, _ in
+            guard let http = response as? HTTPURLResponse,
+                  (200 ... 299).contains(http.statusCode),
+                  let tempUrl else {
+                completion(nil)
+                return
+            }
+            let attrs = try? FileManager.default.attributesOfItem(atPath: tempUrl.path)
+            let fileSize = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+            guard fileSize > 0, fileSize <= maxBytes,
+                  let data = try? Data(contentsOf: tempUrl),
+                  !data.isEmpty,
+                  Int64(data.count) <= maxBytes else {
+                completion(nil)
+                return
+            }
+            completion(data)
+        }.resume()
+    }
+
+    private static func unwrapNtfyJsonLine(_ line: String) -> [String: Any]? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}"),
+              let lineData = trimmed.data(using: .utf8),
+              let outer = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any] else {
+            return nil
+        }
+        if let msgStr = outer["message"] as? String,
+           msgStr.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{"),
+           let innerData = msgStr.data(using: .utf8),
+           let inner = (try? JSONSerialization.jsonObject(with: innerData)) as? [String: Any],
+           inner["ts"] != nil {
+            return inner
+        }
+        if outer["ts"] != nil {
+            return outer
+        }
+        return nil
+    }
+
+    private static func postProfileJson(
+        _ profile: GGDiscordProfileData,
+        bannerUrl: String,
+        musicUrl: String,
+        ts: Int64,
+        dialogId: Int64,
+        completion: (() -> Void)? = nil
+    ) {
+        guard let ntfyUrl = URL(string: "https://ntfy.sh/mtprof_v1_\(dialogId)") else { return }
+        let payload: [String: Any] = [
+            "bannerUrl": bannerUrl,
+            "effectId": profile.effectId,
+            "avatarFrameId": profile.avatarFrameId,
+            "customStatus": String(profile.customStatus.prefix(140)),
+            "steamInput": String(profile.steamInput.prefix(120)),
+            "robloxInput": String(profile.robloxInput.prefix(120)),
+            "musicUrl": musicUrl,
+            "musicTitle": String(profile.musicTitle.prefix(120)),
+            "ts": ts
+        ]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
+        var req = URLRequest(url: ntfyUrl, timeoutInterval: 20.0)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("MediaTok/DiscordProfile", forHTTPHeaderField: "User-Agent")
+        req.httpBody = jsonData
+        URLSession.shared.dataTask(with: req) { _, _, _ in
+            completion?()
+        }.resume()
+    }
 
     private static func uploadToCatbox(data: Data, fileName: String, completion: @escaping (String?) -> Void) {
         guard let url = URL(string: "https://catbox.moe/user/api.php") else {
@@ -365,12 +469,12 @@ final class GGDiscordProfileStore {
             guard let http = response as? HTTPURLResponse,
                   (200 ... 299).contains(http.statusCode),
                   let respData,
-                  let text = String(data: respData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  text.hasPrefix("https://") else {
+                  let raw = String(data: respData, encoding: .utf8),
+                  let allowed = GGMediaTokCoreLogic.isAllowedMediaURL(raw) else {
                 completion(nil)
                 return
             }
-            completion(text)
+            completion(allowed.absoluteString)
         }.resume()
     }
 
@@ -378,15 +482,20 @@ final class GGDiscordProfileStore {
         guard let dialogId = GGDiscordProfileStore.globalDialogId(for: peerId) else { return }
 
         let group = DispatchGroup()
-        var resolvedBannerUrl = profile.bannerUrl
-        var resolvedMusicUrl = profile.musicUrl
+        let urlLock = NSLock()
+        var resolvedBannerUrl = GGMediaTokCoreLogic.isAllowedMediaURL(profile.bannerUrl)?.absoluteString ?? ""
+        var resolvedMusicUrl = GGMediaTokCoreLogic.isAllowedMediaURL(profile.musicUrl)?.absoluteString ?? ""
 
         if !profile.bannerFileName.isEmpty && resolvedBannerUrl.isEmpty,
            let localUrl = self.bannerFileURL(for: profile),
            let bannerData = try? Data(contentsOf: localUrl), !bannerData.isEmpty {
             group.enter()
             GGDiscordProfileStore.uploadToCatbox(data: bannerData, fileName: profile.bannerFileName) { uploaded in
-                if let uploaded { resolvedBannerUrl = uploaded }
+                if let uploaded {
+                    urlLock.lock()
+                    resolvedBannerUrl = uploaded
+                    urlLock.unlock()
+                }
                 group.leave()
             }
         }
@@ -396,41 +505,38 @@ final class GGDiscordProfileStore {
            let musicData = try? Data(contentsOf: localMusic), !musicData.isEmpty {
             group.enter()
             GGDiscordProfileStore.uploadToCatbox(data: musicData, fileName: profile.musicFileName) { uploaded in
-                if let uploaded { resolvedMusicUrl = uploaded }
+                if let uploaded {
+                    urlLock.lock()
+                    resolvedMusicUrl = uploaded
+                    urlLock.unlock()
+                }
                 group.leave()
             }
         }
 
         group.notify(queue: .global(qos: .utility)) {
-            guard let ntfyUrl = URL(string: "https://ntfy.sh/mtprof_v1_\(dialogId)") else { return }
-            let payload: [String: Any] = [
-                "bannerUrl": resolvedBannerUrl,
-                "effectId": profile.effectId,
-                "avatarFrameId": profile.avatarFrameId,
-                "customStatus": profile.customStatus,
-                "steamInput": profile.steamInput,
-                "robloxInput": profile.robloxInput,
-                "musicUrl": resolvedMusicUrl,
-                "musicTitle": profile.musicTitle,
-                "ts": profile.updatedAt
-            ]
-            guard let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
-            var req = URLRequest(url: ntfyUrl, timeoutInterval: 20.0)
-            req.httpMethod = "POST"
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.setValue("MediaTok/DiscordProfile", forHTTPHeaderField: "User-Agent")
-            req.httpBody = jsonData
-            URLSession.shared.dataTask(with: req) { _, _, _ in
+            urlLock.lock()
+            let finalBanner = resolvedBannerUrl
+            let finalMusic = resolvedMusicUrl
+            urlLock.unlock()
+
+            GGDiscordProfileStore.postProfileJson(
+                profile,
+                bannerUrl: finalBanner,
+                musicUrl: finalMusic,
+                ts: profile.updatedAt,
+                dialogId: dialogId
+            ) {
                 let key = GGDiscordProfileStore.keyString(for: peerId)
                 self.lock.lock()
                 if var cur = self.entries[key], cur.updatedAt <= profile.updatedAt {
-                    if !resolvedBannerUrl.isEmpty { cur.bannerUrl = resolvedBannerUrl }
-                    if !resolvedMusicUrl.isEmpty { cur.musicUrl = resolvedMusicUrl }
+                    if !finalBanner.isEmpty { cur.bannerUrl = finalBanner }
+                    if !finalMusic.isEmpty { cur.musicUrl = finalMusic }
                     self.entries[key] = cur
                     self.persistLocked()
                 }
                 self.lock.unlock()
-            }.resume()
+            }
         }
     }
 
@@ -440,6 +546,32 @@ final class GGDiscordProfileStore {
         let now = Date().timeIntervalSince1970
 
         self.lock.lock()
+        self.ensureLoadedLocked()
+        let existingLocal = self.entries[key]
+        let isOwn = self.ownPeersSet().contains(key)
+        if !force && isOwn, let localProf = existingLocal, !localProf.isEmpty {
+            let needHeartbeat = (now - self.lastHeartbeat(for: key)) >= 28800.0
+            if needHeartbeat {
+                self.updateHeartbeat(for: key, ts: now)
+            }
+            self.lock.unlock()
+            if needHeartbeat {
+                if (!localProf.bannerFileName.isEmpty && localProf.bannerUrl.isEmpty) ||
+                   (!localProf.musicFileName.isEmpty && localProf.musicUrl.isEmpty) {
+                    self.publishGlobalProfile(localProf, for: peerId)
+                } else {
+                    GGDiscordProfileStore.postProfileJson(
+                        localProf,
+                        bannerUrl: localProf.bannerUrl,
+                        musicUrl: localProf.musicUrl,
+                        ts: Int64(now),
+                        dialogId: dialogId
+                    )
+                }
+            }
+            return
+        }
+
         let prev = self.lastSyncCheck[key] ?? 0.0
         if !force && (now - prev) < 300.0 {
             self.lock.unlock()
@@ -448,101 +580,118 @@ final class GGDiscordProfileStore {
         self.lastSyncCheck[key] = now
         self.lock.unlock()
 
-        guard let url = URL(string: "https://ntfy.sh/mtprof_v1_\(dialogId)/raw?poll=1&since=all") else { return }
+        guard let url = URL(string: "https://ntfy.sh/mtprof_v1_\(dialogId)/json?poll=1&since=all") else { return }
         var req = URLRequest(url: url, timeoutInterval: 12.0)
         req.setValue("MediaTok/DiscordProfile", forHTTPHeaderField: "User-Agent")
         URLSession.shared.dataTask(with: req) { data, response, _ in
             guard let http = response as? HTTPURLResponse,
                   (200 ... 299).contains(http.statusCode),
                   let data,
+                  data.count <= 262_144,
                   let body = String(data: data, encoding: .utf8) else {
                 return
             }
+
+            let maxAllowedTs = Int64(Date().timeIntervalSince1970) + 300
             var latest: [String: Any]?
+            var latestTs: Int64 = 0
             for line in body.components(separatedBy: .newlines).reversed() {
-                let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard t.hasPrefix("{"), t.hasSuffix("}"),
-                      let ld = t.data(using: .utf8),
-                      let obj = (try? JSONSerialization.jsonObject(with: ld)) as? [String: Any] else {
+                guard let obj = GGDiscordProfileStore.unwrapNtfyJsonLine(line) else {
                     continue
                 }
-                if obj["ts"] != nil {
+                let candidateTs: Int64
+                if let v = obj["ts"] as? Int64 { candidateTs = v }
+                else if let v = obj["ts"] as? Int { candidateTs = Int64(v) }
+                else if let v = obj["ts"] as? Double { candidateTs = Int64(v) }
+                else { candidateTs = 0 }
+                if candidateTs > 0 && candidateTs <= maxAllowedTs && candidateTs > latestTs {
                     latest = obj
-                    break
+                    latestTs = candidateTs
                 }
             }
-            guard let obj = latest else { return }
-            let remoteTs: Int64
-            if let v = obj["ts"] as? Int64 { remoteTs = v }
-            else if let v = obj["ts"] as? Int { remoteTs = Int64(v) }
-            else if let v = obj["ts"] as? Double { remoteTs = Int64(v) }
-            else { remoteTs = 0 }
-            guard remoteTs > 0 else { return }
+            guard let obj = latest, latestTs > 0 else { return }
+            let remoteTs = latestTs
 
             self.lock.lock()
             self.ensureLoadedLocked()
             let existing = self.entries[key]
             self.lock.unlock()
 
-            if let existing, remoteTs <= existing.updatedAt {
+            if let existing, !force && remoteTs <= existing.updatedAt {
                 return
             }
 
-            let remoteBannerUrl = obj["bannerUrl"] as? String ?? ""
-            let remoteMusicUrl = obj["musicUrl"] as? String ?? ""
-            let remoteMusicTitle = obj["musicTitle"] as? String ?? ""
+            let rawBannerUrl = obj["bannerUrl"] as? String ?? ""
+            let rawMusicUrl = obj["musicUrl"] as? String ?? ""
+            let validatedBanner = GGMediaTokCoreLogic.isAllowedMediaURL(rawBannerUrl)
+            let validatedMusic = GGMediaTokCoreLogic.isAllowedMediaURL(rawMusicUrl)
+            let remoteBannerUrl = validatedBanner?.absoluteString ?? ""
+            let remoteMusicUrl = validatedMusic?.absoluteString ?? ""
+
+            let validEffects = Set(GGDiscordProfileStore.effects.map { $0.id })
+            let rawEffect = obj["effectId"] as? String ?? "none"
+            let safeEffect = validEffects.contains(rawEffect) ? rawEffect : "none"
+
+            let validFrames = Set(GGDiscordProfileStore.avatarFrames.map { $0.id })
+            let rawFrame = obj["avatarFrameId"] as? String ?? "none"
+            let safeFrame = validFrames.contains(rawFrame) ? rawFrame : "none"
+
+            let safeStatus = String((obj["customStatus"] as? String ?? "").prefix(140))
+            let safeSteam = String((obj["steamInput"] as? String ?? "").prefix(120))
+            let safeRoblox = String((obj["robloxInput"] as? String ?? "").prefix(120))
+            let safeMusicTitle = String((obj["musicTitle"] as? String ?? "").prefix(120))
 
             let dlGroup = DispatchGroup()
+            let dlLock = NSLock()
             var savedBannerFile = (remoteBannerUrl == existing?.bannerUrl) ? (existing?.bannerFileName ?? "") : ""
             var savedMusicFile = (remoteMusicUrl == existing?.musicUrl) ? (existing?.musicFileName ?? "") : ""
 
-            if remoteBannerUrl.hasPrefix("https://"),
-               savedBannerFile.isEmpty,
-               let bUrl = URL(string: remoteBannerUrl) {
+            if let bUrl = validatedBanner, savedBannerFile.isEmpty {
                 dlGroup.enter()
-                URLSession.shared.dataTask(with: bUrl) { bData, bResp, _ in
-                    if let bHttp = bResp as? HTTPURLResponse,
-                       (200 ... 299).contains(bHttp.statusCode),
-                       let bData, !bData.isEmpty,
-                       let saved = self.saveBannerData(bData, for: peerId) {
+                GGDiscordProfileStore.downloadLimitedData(from: bUrl, maxBytes: 15 * 1024 * 1024) { bData in
+                    if let bData, let saved = self.saveBannerData(bData, for: peerId) {
+                        dlLock.lock()
                         savedBannerFile = saved
+                        dlLock.unlock()
                     }
                     dlGroup.leave()
-                }.resume()
+                }
             }
 
-            if remoteMusicUrl.hasPrefix("https://"),
-               savedMusicFile.isEmpty,
-               let mUrl = URL(string: remoteMusicUrl) {
+            if let mUrl = validatedMusic, savedMusicFile.isEmpty {
                 dlGroup.enter()
-                URLSession.shared.dataTask(with: mUrl) { mData, mResp, _ in
-                    if let mHttp = mResp as? HTTPURLResponse,
-                       (200 ... 299).contains(mHttp.statusCode),
-                       let mData, !mData.isEmpty,
-                       let saved = self.saveMusicData(mData, ext: mUrl.pathExtension, for: peerId) {
+                GGDiscordProfileStore.downloadLimitedData(from: mUrl, maxBytes: 25 * 1024 * 1024) { mData in
+                    if let mData, let saved = self.saveMusicData(mData, ext: mUrl.pathExtension, for: peerId) {
+                        dlLock.lock()
                         savedMusicFile = saved
+                        dlLock.unlock()
                     }
                     dlGroup.leave()
-                }.resume()
+                }
             }
 
             dlGroup.notify(queue: .global(qos: .utility)) {
+                dlLock.lock()
+                let finalBannerFile = savedBannerFile
+                let finalMusicFile = savedMusicFile
+                dlLock.unlock()
+
                 let remote = GGDiscordProfileData(
-                    bannerFileName: savedBannerFile,
+                    bannerFileName: finalBannerFile,
                     bannerUrl: remoteBannerUrl,
-                    effectId: obj["effectId"] as? String ?? "none",
-                    avatarFrameId: obj["avatarFrameId"] as? String ?? "none",
-                    customStatus: obj["customStatus"] as? String ?? "",
-                    steamInput: obj["steamInput"] as? String ?? "",
-                    robloxInput: obj["robloxInput"] as? String ?? "",
-                    musicFileName: savedMusicFile,
+                    effectId: safeEffect,
+                    avatarFrameId: safeFrame,
+                    customStatus: safeStatus,
+                    steamInput: safeSteam,
+                    robloxInput: safeRoblox,
+                    musicFileName: finalMusicFile,
                     musicUrl: remoteMusicUrl,
-                    musicTitle: remoteMusicTitle,
+                    musicTitle: safeMusicTitle,
                     updatedAt: remoteTs
                 )
                 self.lock.lock()
                 self.ensureLoadedLocked()
-                if let cur = self.entries[key], remoteTs <= cur.updatedAt {
+                if let cur = self.entries[key], !force && remoteTs <= cur.updatedAt {
                     self.lock.unlock()
                     return
                 }
@@ -582,39 +731,7 @@ private final class GGConnectionResolvers {
     private init() {}
 
     static func normalizeSteam(_ raw: String) -> (profileUrl: URL, xmlUrl: URL, cleanLabel: String)? {
-        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !s.isEmpty else { return nil }
-        if s.lowercased().hasPrefix("http://") || s.lowercased().hasPrefix("https://") {
-            if let idx = s.range(of: "steamcommunity.com/") {
-                s = String(s[idx.upperBound...])
-            }
-        } else if s.lowercased().hasPrefix("steamcommunity.com/") {
-            s = String(s.dropFirst("steamcommunity.com/".count))
-        }
-        while s.hasSuffix("/") { s.removeLast() }
-        if let qIdx = s.firstIndex(of: "?") { s = String(s[..<qIdx]) }
-
-        let path: String
-        let label: String
-        if s.hasPrefix("profiles/") {
-            path = s
-            label = String(s.dropFirst("profiles/".count))
-        } else if s.hasPrefix("id/") {
-            path = s
-            label = String(s.dropFirst("id/".count))
-        } else if s.count == 17 && s.allSatisfy({ $0.isNumber }) {
-            path = "profiles/\(s)"
-            label = s
-        } else {
-            let safe = s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? s
-            path = "id/\(safe)"
-            label = s
-        }
-        guard let pUrl = URL(string: "https://steamcommunity.com/\(path)"),
-              let xUrl = URL(string: "https://steamcommunity.com/\(path)?xml=1") else {
-            return nil
-        }
-        return (pUrl, xUrl, label)
+        return GGMediaTokCoreLogic.normalizeSteam(raw)
     }
 
     func steamInfo(for input: String, onUpdate: @escaping () -> Void) -> (text: String, badge: String, url: URL)? {

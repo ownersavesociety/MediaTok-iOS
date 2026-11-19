@@ -1,6 +1,6 @@
 import Foundation
 import UIKit
-import CryptoKit
+import Security
 import Postbox
 import TelegramCore
 import AccountContext
@@ -11,15 +11,21 @@ import GGHooks
 import GGSettingsUI
 
 /// Optional per-chat AES-256-GCM End-to-End Encryption for MediaTok iOS.
-/// - Toggleable per chat via Send button long-press menu, profile "..." menu, Settings, or inline `.e2e on <key>` / `.e2e off`.
-/// - Encrypts outgoing messages transparently into `🔒MT1:<url-safe-base64>` (so Telegram servers & non-E2E clients only see ciphertext).
-/// - Decrypts incoming & outgoing `🔒MT1:` bubbles transparently in-memory via `GGMessageDecorationHooks.decorations` (NO upstream edits!).
+/// - Keys are stored exclusively in iOS Keychain (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`)
+///   with automatic migration from legacy UserDefaults.
+/// - Keys are derived via 100,000-iteration PBKDF2-HMAC-SHA256 with random 128-bit salt and
+///   chat-bound AAD (`🔒MT2:`), preventing cross-chat replay and GPU brute-force.
+/// - Decrypted cache & derived keys are purged automatically when entering the background.
 enum GGMediaTokE2E {
-    private static let prefix = "🔒MT1:"
-    private static let defaultsKey = "mediatok.e2e.keys.v1"
+    private static let legacyDefaultsKey = "mediatok.e2e.keys.v1"
     private static let enabledKey = "mediatok.e2e.enabled.v1"
+    private static let keychainService = "org.mediatok.e2e.keys.v2"
+    private static let keychainAccount = "chat_keys"
+
     private static let lock = NSLock()
+    private static var cachedKeys: [String: String]?
     private static var decryptCache: [String: String] = [:]
+    private static var backgroundObserver: NSObjectProtocol?
 
     static func register() {
         // 1. Inline `.e2e on <pass>` / `.e2e off` / `.e2e status` interceptor (never leaks passphrase to chat!)
@@ -27,7 +33,7 @@ enum GGMediaTokE2E {
             return GGMediaTokE2E.interceptCommand(request)
         }, order: 20)
 
-        // 2. Transparent outgoing AES-256-GCM encryption (runs LAST after chat text fonts!)
+        // 2. Transparent outgoing AES-256-GCM encryption (runs LAST after chat text fonts, skips sticker/bot commands)
         GGOutgoingHooks.textStages.register({ outgoing, context in
             GGMediaTokE2E.encryptOutgoing(&outgoing, peerId: context.peerId)
         }, order: 950)
@@ -46,16 +52,91 @@ enum GGMediaTokE2E {
         GGPeerInfoHooks.menuItems.register({ info in
             return GGMediaTokE2E.profileMenuItems(info)
         }, order: 80)
+
+        // 6. Wipe plaintext & PBKDF2 key caches from RAM when app leaves foreground
+        GGMediaTokE2E.backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            GGMediaTokE2E.clearCache(redraw: false)
+        }
     }
 
-    // MARK: - Storage
+    // MARK: - Keychain Storage & Migration
 
     private static func peerKey(_ peerId: PeerId) -> String {
         return "\(peerId.namespace._internalGetInt32Value())_\(peerId.id._internalGetInt64Value())"
     }
 
+    private static func readKeysFromKeychain() -> [String: String]? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: GGMediaTokE2E.keychainService,
+            kSecAttrAccount as String: GGMediaTokE2E.keychainAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess,
+              let data = item as? Data,
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
+            return nil
+        }
+        return decoded
+    }
+
+    private static func writeKeysToKeychain(_ dict: [String: String]) {
+        let baseQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: GGMediaTokE2E.keychainService,
+            kSecAttrAccount as String: GGMediaTokE2E.keychainAccount
+        ]
+        if dict.isEmpty {
+            _ = SecItemDelete(baseQuery as CFDictionary)
+            return
+        }
+        guard let data = try? JSONEncoder().encode(dict) else { return }
+        let updateAttrs: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+        let status = SecItemUpdate(baseQuery as CFDictionary, updateAttrs as CFDictionary)
+        if status == errSecItemNotFound {
+            var addQuery = baseQuery
+            addQuery[kSecValueData as String] = data
+            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            _ = SecItemAdd(addQuery as CFDictionary, nil)
+        }
+    }
+
+    private static func loadKeysLocked() -> [String: String] {
+        if let cached = GGMediaTokE2E.cachedKeys {
+            return cached
+        }
+        if let kc = GGMediaTokE2E.readKeysFromKeychain() {
+            if UserDefaults.standard.object(forKey: GGMediaTokE2E.legacyDefaultsKey) != nil {
+                UserDefaults.standard.removeObject(forKey: GGMediaTokE2E.legacyDefaultsKey)
+            }
+            GGMediaTokE2E.cachedKeys = kc
+            return kc
+        }
+        if let legacy = UserDefaults.standard.dictionary(forKey: GGMediaTokE2E.legacyDefaultsKey) as? [String: String], !legacy.isEmpty {
+            GGMediaTokE2E.writeKeysToKeychain(legacy)
+            UserDefaults.standard.removeObject(forKey: GGMediaTokE2E.legacyDefaultsKey)
+            GGMediaTokE2E.cachedKeys = legacy
+            return legacy
+        }
+        GGMediaTokE2E.cachedKeys = [:]
+        return [:]
+    }
+
     static var allKeys: [String: String] {
-        return (UserDefaults.standard.dictionary(forKey: GGMediaTokE2E.defaultsKey) as? [String: String]) ?? [:]
+        GGMediaTokE2E.lock.lock()
+        let keys = GGMediaTokE2E.loadKeysLocked()
+        GGMediaTokE2E.lock.unlock()
+        return keys
     }
 
     static var enabledPeers: Set<String> {
@@ -69,12 +150,15 @@ enum GGMediaTokE2E {
 
     static func isEnabled(for peerId: PeerId) -> Bool {
         let k = GGMediaTokE2E.peerKey(peerId)
-        return GGMediaTokE2E.enabledPeers.contains(k) && !(GGMediaTokE2E.allKeys[k] ?? "").isEmpty
+        guard GGMediaTokE2E.enabledPeers.contains(k) else { return false }
+        let keys = GGMediaTokE2E.allKeys
+        return !(keys[k] ?? "").isEmpty
     }
 
     static func passphrase(for peerId: PeerId) -> String? {
         let k = GGMediaTokE2E.peerKey(peerId)
-        guard let v = GGMediaTokE2E.allKeys[k], !v.isEmpty else { return nil }
+        let keys = GGMediaTokE2E.allKeys
+        guard let v = keys[k], !v.isEmpty else { return nil }
         return v
     }
 
@@ -82,15 +166,19 @@ enum GGMediaTokE2E {
         let trimmed = passphrase.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let k = GGMediaTokE2E.peerKey(peerId)
-        var keys = GGMediaTokE2E.allKeys
+
+        GGMediaTokE2E.lock.lock()
+        var keys = GGMediaTokE2E.loadKeysLocked()
         keys[k] = trimmed
-        UserDefaults.standard.set(keys, forKey: GGMediaTokE2E.defaultsKey)
+        GGMediaTokE2E.cachedKeys = keys
+        GGMediaTokE2E.writeKeysToKeychain(keys)
+        GGMediaTokE2E.lock.unlock()
 
         var enabled = GGMediaTokE2E.enabledPeers
         enabled.insert(k)
         UserDefaults.standard.set(Array(enabled), forKey: GGMediaTokE2E.enabledKey)
 
-        GGMediaTokE2E.clearCache()
+        GGMediaTokE2E.clearCache(redraw: true)
     }
 
     static func disable(for peerId: PeerId) {
@@ -98,63 +186,38 @@ enum GGMediaTokE2E {
         var enabled = GGMediaTokE2E.enabledPeers
         enabled.remove(k)
         UserDefaults.standard.set(Array(enabled), forKey: GGMediaTokE2E.enabledKey)
-        GGMediaTokE2E.clearCache()
+        GGMediaTokE2E.clearCache(redraw: true)
     }
 
     static func removeAll() {
-        UserDefaults.standard.removeObject(forKey: GGMediaTokE2E.defaultsKey)
+        GGMediaTokE2E.lock.lock()
+        GGMediaTokE2E.cachedKeys = [:]
+        GGMediaTokE2E.writeKeysToKeychain([:])
+        GGMediaTokE2E.lock.unlock()
+
+        UserDefaults.standard.removeObject(forKey: GGMediaTokE2E.legacyDefaultsKey)
         UserDefaults.standard.removeObject(forKey: GGMediaTokE2E.enabledKey)
-        GGMediaTokE2E.clearCache()
+        GGMediaTokE2E.clearCache(redraw: true)
     }
 
-    private static func clearCache() {
+    private static func clearCache(redraw: Bool) {
         GGMediaTokE2E.lock.lock()
         GGMediaTokE2E.decryptCache.removeAll()
         GGMediaTokE2E.lock.unlock()
-        GGMessageDecorationHooks.redrawAll()
+        GGMediaTokCoreLogic.clearCryptoCache()
+        if redraw {
+            GGMessageDecorationHooks.redrawAll()
+        }
     }
 
-    // MARK: - AES-256-GCM CryptoKit
+    // MARK: - AES-256-GCM PBKDF2 Crypto
 
-    private static func deriveKey(passphrase: String) -> SymmetricKey {
-        let material = Data("MediaTokE2E:v1:\(passphrase)".utf8)
-        let hash = SHA256.hash(data: material)
-        return SymmetricKey(data: hash)
+    static func encrypt(_ plaintext: String, passphrase: String, peerId: PeerId) -> String? {
+        return GGMediaTokCoreLogic.encryptV2(plaintext, passphrase: passphrase, peerKey: GGMediaTokE2E.peerKey(peerId))
     }
 
-    static func encrypt(_ plaintext: String, passphrase: String) -> String? {
-        let key = GGMediaTokE2E.deriveKey(passphrase: passphrase)
-        let plainData = Data(plaintext.utf8)
-        guard let sealed = try? AES.GCM.seal(plainData, using: key),
-              let combined = sealed.combined else {
-            return nil
-        }
-        let b64 = combined.base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-        return GGMediaTokE2E.prefix + b64
-    }
-
-    static func decrypt(_ ciphertext: String, passphrase: String) -> String? {
-        guard ciphertext.hasPrefix(GGMediaTokE2E.prefix) else { return nil }
-        var b64 = String(ciphertext.dropFirst(GGMediaTokE2E.prefix.count))
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let rem = b64.count % 4
-        if rem > 0 {
-            b64.append(String(repeating: "=", count: 4 - rem))
-        }
-        guard let raw = Data(base64Encoded: b64),
-              let box = try? AES.GCM.SealedBox(combined: raw) else {
-            return nil
-        }
-        let key = GGMediaTokE2E.deriveKey(passphrase: passphrase)
-        guard let plain = try? AES.GCM.open(box, using: key),
-              let str = String(data: plain, encoding: .utf8) else {
-            return nil
-        }
-        return str
+    static func decrypt(_ ciphertext: String, passphrase: String, peerId: PeerId) -> String? {
+        return GGMediaTokCoreLogic.decryptAny(ciphertext, passphrase: passphrase, peerKey: GGMediaTokE2E.peerKey(peerId))
     }
 
     // MARK: - Hooks
@@ -178,7 +241,7 @@ enum GGMediaTokE2E {
                 statusMsg = "Укажи ключ: .e2e on <пароль>"
             } else {
                 GGMediaTokE2E.enable(for: peerId, passphrase: pass)
-                statusMsg = "🔐 E2E AES-256-GCM включено! Передай пароль собеседнику лично."
+                statusMsg = "🔐 E2E AES-256-GCM (PBKDF2) включено! Передай пароль собеседнику лично."
             }
         } else if lower == ".e2e" || lower == ".e2e status" {
             statusMsg = GGMediaTokE2E.isEnabled(for: peerId)
@@ -193,14 +256,30 @@ enum GGMediaTokE2E {
         return true
     }
 
+    private static func shouldSkipEncryptionForCommand(_ text: String) -> Bool {
+        let lower = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if lower.hasPrefix("/") {
+            return true
+        }
+        let prefixes = [".color ", ".col ", ".q ", ".stats ", ".e2e", ".afk", ".c ", ".c! "]
+        for p in prefixes {
+            if lower.hasPrefix(p) {
+                return true
+            }
+        }
+        return lower == ".stats"
+    }
+
     private static func encryptOutgoing(_ outgoing: inout GGOutgoingText, peerId: PeerId) {
         guard GGMediaTokE2E.isEnabled(for: peerId),
               let pass = GGMediaTokE2E.passphrase(for: peerId),
               !outgoing.text.isEmpty,
-              !outgoing.text.hasPrefix(GGMediaTokE2E.prefix) else {
+              !outgoing.text.hasPrefix(GGMediaTokCoreLogic.prefixV2),
+              !outgoing.text.hasPrefix(GGMediaTokCoreLogic.prefixV1),
+              !GGMediaTokE2E.shouldSkipEncryptionForCommand(outgoing.text) else {
             return
         }
-        if let encrypted = GGMediaTokE2E.encrypt(outgoing.text, passphrase: pass) {
+        if let encrypted = GGMediaTokE2E.encrypt(outgoing.text, passphrase: pass, peerId: peerId) {
             outgoing.text = encrypted
             outgoing.entities = []
         }
@@ -208,7 +287,7 @@ enum GGMediaTokE2E {
 
     private static func decryptDecoration(_ decoration: inout GGMessageDecoration, message: Message) {
         let text = decoration.textOverride?.text ?? message.text
-        guard text.hasPrefix(GGMediaTokE2E.prefix) else {
+        guard text.hasPrefix(GGMediaTokCoreLogic.prefixV2) || text.hasPrefix(GGMediaTokCoreLogic.prefixV1) else {
             return
         }
         let cacheKey = "\(message.id.peerId.toInt64()):\(message.id.id):\(text.hashValue)"
@@ -223,7 +302,7 @@ enum GGMediaTokE2E {
 
         let resolved: String
         if let pass = GGMediaTokE2E.passphrase(for: message.id.peerId),
-           let plain = GGMediaTokE2E.decrypt(text, passphrase: pass) {
+           let plain = GGMediaTokE2E.decrypt(text, passphrase: pass, peerId: message.id.peerId) {
             resolved = "🔓 " + plain
         } else {
             resolved = "🔐 Зашифровано MediaTok E2E (введите ключ в чате: .e2e on <пароль>)"
@@ -277,13 +356,13 @@ enum GGMediaTokE2E {
         let currentPass = GGMediaTokE2E.passphrase(for: peerId) ?? ""
         let alert = UIAlertController(
             title: isOn ? "🔐 E2E-шифрование (ВКЛ)" : "🔓 Включить E2E-шифрование",
-            message: "AES-256-GCM шифрование сообщений прямо в обычном чате. Задайте общий пароль с собеседником — сервер Telegram увидит только шифротекст.",
+            message: "AES-256-GCM + PBKDF2 шифрование сообщений в Keychain iOS. Задайте общий пароль с собеседником — сервер Telegram увидит только шифротекст.",
             preferredStyle: .alert
         )
         alert.addTextField { tf in
             tf.placeholder = "Общий секретный ключ (пароль)"
             tf.text = currentPass
-            tf.isSecureTextEntry = false
+            tf.isSecureTextEntry = true
         }
         alert.addAction(UIAlertAction(title: "Включить / Сохранить", style: .default, handler: { [weak alert] _ in
             let pass = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -292,7 +371,7 @@ enum GGMediaTokE2E {
                 return
             }
             GGMediaTokE2E.enable(for: peerId, passphrase: pass)
-            GGMediaTokE2E.showToast(context: context, text: "🔐 E2E AES-256-GCM включено для этого чата!")
+            GGMediaTokE2E.showToast(context: context, text: "🔐 E2E AES-256-GCM (PBKDF2) включено!")
         }))
         if isOn {
             alert.addAction(UIAlertAction(title: "Выключить E2E", style: .destructive, handler: { _ in
@@ -308,7 +387,7 @@ enum GGMediaTokE2E {
         let count = GGMediaTokE2E.activeCount
         let alert = UIAlertController(
             title: "E2E-шифрование чатов (AES-256-GCM)",
-            message: "Активно чатов: \(count).\n\nВключить E2E для любого чата можно:\n• Долгим нажатием на кнопку «Отправить» в чате\n• Через меню «…» в профиле\n• Командой прямо в чате: .e2e on <пароль> и .e2e off",
+            message: "Активно чатов: \(count) (ключи защищены в Keychain + PBKDF2).\n\nВключить E2E для любого чата можно:\n• Долгим нажатием на кнопку «Отправить» в чате\n• Через меню «…» в профиле\n• Командой прямо в чате: .e2e on <пароль> и .e2e off",
             preferredStyle: .alert
         )
         if count > 0 {

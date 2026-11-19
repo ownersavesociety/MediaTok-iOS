@@ -15,16 +15,17 @@ import GGHooks
 ///   .c 10 ton в руб     ->  10 TON = 5 420 RUB
 enum GGMediaTokCalculator {
     private static let lock = NSLock()
-    // Rates are expressed as "how many USD is 1 unit of currency" (e.g. USD=1, RUB≈0.0102, BTC≈90000)
+    // Rates are expressed as "how many USD is 1 unit of currency" (e.g. USD=1, RUB≈0.0108, BTC≈64000)
     private static var usdPerUnit: [String: Double] = GGMediaTokCalculator.fallbackRates
     private static var lastFetchAt: TimeInterval = 0.0
     private static var isFetching = false
+    private static var pendingCompletions: [() -> Void] = []
 
     private static let fallbackRates: [String: Double] = [
-        "USD": 1.0, "EUR": 1.08, "GBP": 1.27, "RUB": 1.0 / 98.0, "KZT": 1.0 / 495.0,
+        "USD": 1.0, "EUR": 1.08, "GBP": 1.27, "RUB": 1.0 / 92.0, "KZT": 1.0 / 510.0,
         "UAH": 1.0 / 41.5, "BYN": 1.0 / 3.28, "TRY": 1.0 / 34.5, "CNY": 1.0 / 7.25,
         "JPY": 1.0 / 154.0, "AED": 1.0 / 3.6725, "UZS": 1.0 / 12800.0, "PLN": 1.0 / 4.05,
-        "USDT": 1.0, "BTC": 92000.0, "ETH": 3100.0, "TON": 5.4, "SOL": 210.0, "NOT": 0.0075
+        "USDT": 1.0, "BTC": 64000.0, "ETH": 1810.0, "TON": 1.03, "SOL": 85.0, "NOT": 0.003
     ]
 
     private static let currencyAliases: [String: String] = [
@@ -169,18 +170,21 @@ enum GGMediaTokCalculator {
         let now = Date().timeIntervalSince1970
         GGMediaTokCalculator.lock.lock()
         let fresh = (now - GGMediaTokCalculator.lastFetchAt) < 1800.0 && GGMediaTokCalculator.lastFetchAt > 0.0
-        let busy = GGMediaTokCalculator.isFetching
-        if !fresh && !busy {
-            GGMediaTokCalculator.isFetching = true
-        }
-        GGMediaTokCalculator.lock.unlock()
-
-        if fresh || busy {
+        if fresh {
+            GGMediaTokCalculator.lock.unlock()
             completion()
             return
         }
+        GGMediaTokCalculator.pendingCompletions.append(completion)
+        if GGMediaTokCalculator.isFetching {
+            GGMediaTokCalculator.lock.unlock()
+            return
+        }
+        GGMediaTokCalculator.isFetching = true
+        GGMediaTokCalculator.lock.unlock()
 
         let group = DispatchGroup()
+        let fetchLock = NSLock()
         var fetchedFiat: [String: Double] = [:]
         var fetchedCrypto: [String: Double] = [:]
 
@@ -192,9 +196,11 @@ enum GGMediaTokCalculator {
                 if let data,
                    let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                    let rates = json["rates"] as? [String: Double] {
+                    fetchLock.lock()
                     for (code, perUsd) in rates where perUsd > 0 {
                         fetchedFiat[code.uppercased()] = 1.0 / perUsd
                     }
+                    fetchLock.unlock()
                 }
                 group.leave()
             }.resume()
@@ -211,42 +217,56 @@ enum GGMediaTokCalculator {
                         ("bitcoin", "BTC"), ("ethereum", "ETH"), ("the-open-network", "TON"),
                         ("tether", "USDT"), ("solana", "SOL"), ("notcoin", "NOT")
                     ]
+                    fetchLock.lock()
                     for (cgId, code) in map {
                         if let usd = json[cgId]?["usd"], usd > 0 {
                             fetchedCrypto[code] = usd
                         }
                     }
+                    fetchLock.unlock()
                 }
                 group.leave()
             }.resume()
         }
 
         group.notify(queue: .main) {
+            fetchLock.lock()
+            let fiatCopy = fetchedFiat
+            let cryptoCopy = fetchedCrypto
+            fetchLock.unlock()
+
             GGMediaTokCalculator.lock.lock()
-            for (k, v) in fetchedFiat { GGMediaTokCalculator.usdPerUnit[k] = v }
-            for (k, v) in fetchedCrypto { GGMediaTokCalculator.usdPerUnit[k] = v }
-            if !fetchedFiat.isEmpty || !fetchedCrypto.isEmpty {
+            for (k, v) in fiatCopy { GGMediaTokCalculator.usdPerUnit[k] = v }
+            for (k, v) in cryptoCopy { GGMediaTokCalculator.usdPerUnit[k] = v }
+            if !fiatCopy.isEmpty || !cryptoCopy.isEmpty {
                 GGMediaTokCalculator.lastFetchAt = Date().timeIntervalSince1970
             }
             GGMediaTokCalculator.isFetching = false
+            let callbacks = GGMediaTokCalculator.pendingCompletions
+            GGMediaTokCalculator.pendingCompletions.removeAll()
             GGMediaTokCalculator.lock.unlock()
-            completion()
+
+            for cb in callbacks {
+                cb()
+            }
         }
     }
 
     private static func formatCurrencyConversion(_ q: CurrencyQuery, resultOnly: Bool) -> String {
         GGMediaTokCalculator.lock.lock()
         let rates = GGMediaTokCalculator.usdPerUnit
+        let isOffline = (GGMediaTokCalculator.lastFetchAt == 0.0)
         GGMediaTokCalculator.lock.unlock()
+        let offlineTag = isOffline ? " (офлайн)" : ""
 
         guard let fromUsd = rates[q.fromCode] else {
-            return "\(GGMediaTokCalculator.formatNumber(q.amount)) \(q.fromCode)"
+            return "\(GGMediaTokCalculator.formatNumber(q.amount)) \(q.fromCode)\(offlineTag)"
         }
         let usdAmount = q.amount * fromUsd
 
         if let target = q.toCode, let toUsd = rates[target], toUsd > 0 {
             let converted = usdAmount / toUsd
-            let right = "\(GGMediaTokCalculator.formatCurrencyNum(converted)) \(target)"
+            let right = "\(GGMediaTokCalculator.formatCurrencyNum(converted)) \(target)\(offlineTag)"
             if resultOnly { return right }
             return "\(GGMediaTokCalculator.formatCurrencyNum(q.amount)) \(q.fromCode) = \(right)"
         }
@@ -266,7 +286,7 @@ enum GGMediaTokCalculator {
             guard code != q.fromCode, let r = rates[code], r > 0 else { return nil }
             return "\(GGMediaTokCalculator.formatCurrencyNum(usdAmount / r)) \(code)"
         }
-        let summary = parts.joined(separator: " · ")
+        let summary = parts.joined(separator: " · ") + offlineTag
         if resultOnly { return summary }
         return "\(GGMediaTokCalculator.formatCurrencyNum(q.amount)) \(q.fromCode) = \(summary)"
     }
@@ -303,150 +323,10 @@ enum GGMediaTokCalculator {
         return nf.string(from: NSNumber(value: v)) ?? "\(v)"
     }
 
-    // MARK: - Safe Recursive-Descent Math Evaluator
-
-    private final class MathParser {
-        private let chars: [Character]
-        private var pos = 0
-
-        init(_ input: String) {
-            let normalized = input
-                .replacingOccurrences(of: ",", with: ".")
-                .replacingOccurrences(of: "×", with: "*")
-                .replacingOccurrences(of: "÷", with: "/")
-                .replacingOccurrences(of: "−", with: "-")
-                .replacingOccurrences(of: " ", with: "")
-            self.chars = Array(normalized)
-        }
-
-        func parse() -> Double? {
-            guard !self.chars.isEmpty else { return nil }
-            guard let v = self.parseAddSub(), self.pos == self.chars.count, v.isFinite else {
-                return nil
-            }
-            return v
-        }
-
-        private func peek() -> Character? {
-            return self.pos < self.chars.count ? self.chars[self.pos] : nil
-        }
-
-        private func parseAddSub() -> Double? {
-            guard var left = self.parseMulDiv() else { return nil }
-            while let ch = self.peek(), ch == "+" || ch == "-" {
-                self.pos += 1
-                guard let right = self.parseMulDiv() else { return nil }
-                left = (ch == "+") ? (left + right) : (left - right)
-            }
-            return left
-        }
-
-        private func parseMulDiv() -> Double? {
-            guard var left = self.parsePower() else { return nil }
-            while let ch = self.peek(), ch == "*" || ch == "/" || ch == "%" {
-                self.pos += 1
-                guard let right = self.parsePower() else { return nil }
-                if ch == "*" {
-                    left *= right
-                } else if ch == "/" {
-                    if right == 0 { return nil }
-                    left /= right
-                } else {
-                    if right == 0 { return nil }
-                    left = left.truncatingRemainder(dividingBy: right)
-                }
-            }
-            return left
-        }
-
-        private func parsePower() -> Double? {
-            guard let base = self.parseUnary() else { return nil }
-            if self.peek() == "^" {
-                self.pos += 1
-                guard let exp = self.parsePower() else { return nil }
-                return pow(base, exp)
-            }
-            return base
-        }
-
-        private func parseUnary() -> Double? {
-            if self.peek() == "+" {
-                self.pos += 1
-                return self.parseUnary()
-            }
-            if self.peek() == "-" {
-                self.pos += 1
-                guard let v = self.parseUnary() else { return nil }
-                return -v
-            }
-            return self.parsePrimary()
-        }
-
-        private func parsePrimary() -> Double? {
-            if self.peek() == "(" {
-                self.pos += 1
-                guard let v = self.parseAddSub(), self.peek() == ")" else { return nil }
-                self.pos += 1
-                return v
-            }
-            if let ch = self.peek(), ch.isLetter {
-                let start = self.pos
-                while let c = self.peek(), c.isLetter || c.isNumber {
-                    self.pos += 1
-                }
-                let ident = String(self.chars[start ..< self.pos]).lowercased()
-                if ident == "pi" { return Double.pi }
-                if ident == "e" { return 2.71828182845904523536 }
-                guard self.peek() == "(" else { return nil }
-                self.pos += 1
-                guard let arg = self.parseAddSub(), self.peek() == ")" else { return nil }
-                self.pos += 1
-                switch ident {
-                case "sqrt": return arg >= 0 ? sqrt(arg) : nil
-                case "abs": return abs(arg)
-                case "sin": return sin(arg)
-                case "cos": return cos(arg)
-                case "tan": return tan(arg)
-                case "ln": return arg > 0 ? log(arg) : nil
-                case "log", "log10": return arg > 0 ? log10(arg) : nil
-                case "round": return arg.rounded()
-                case "floor": return floor(arg)
-                case "ceil": return ceil(arg)
-                default: return nil
-                }
-            }
-            let start = self.pos
-            var hasDot = false
-            while let ch = self.peek() {
-                if ch.isNumber {
-                    self.pos += 1
-                } else if ch == "." && !hasDot {
-                    hasDot = true
-                    self.pos += 1
-                } else {
-                    break
-                }
-            }
-            guard self.pos > start else { return nil }
-            var val = Double(String(self.chars[start ..< self.pos]))
-            if let v = val, let suffix = self.peek() {
-                let low = String(suffix).lowercased()
-                if low == "k" || low == "к" {
-                    self.pos += 1
-                    if let s2 = self.peek(), String(s2).lowercased() == "k" || String(s2).lowercased() == "к" {
-                        self.pos += 1
-                        val = v * 1_000_000.0
-                    } else {
-                        val = v * 1_000.0
-                    }
-                }
-            }
-            return val
-        }
-    }
+    // MARK: - Depth-Bounded Math Evaluator (delegated to GGMediaTokCoreLogic)
 
     static func evaluateMath(_ expr: String) -> Double? {
-        return MathParser(expr).parse()
+        return GGMediaTokCoreLogic.evaluateMath(expr)
     }
 
     private static func tryConvertUnits(_ raw: String, resultOnly: Bool) -> String? {
@@ -461,7 +341,7 @@ enum GGMediaTokCalculator {
             out = ("\(GGMediaTokCalculator.formatCurrencyNum(val)) миль", "\(GGMediaTokCalculator.formatCurrencyNum(val * 1.60934)) км")
         case "kg", "кг":
             out = ("\(GGMediaTokCalculator.formatCurrencyNum(val)) кг", "\(GGMediaTokCalculator.formatCurrencyNum(val * 2.20462)) фунтов (lb)")
-        case "lb", "lbs", "фунт", "фунтов":
+        case "lb", "lbs":
             out = ("\(GGMediaTokCalculator.formatCurrencyNum(val)) lb", "\(GGMediaTokCalculator.formatCurrencyNum(val * 0.453592)) кг")
         case "cm", "см":
             out = ("\(GGMediaTokCalculator.formatCurrencyNum(val)) см", "\(GGMediaTokCalculator.formatCurrencyNum(val / 2.54)) дюймов (in)")

@@ -535,7 +535,10 @@ public final class GGVisualProfileStore {
         }
     }
 
-    // MARK: - Global 4K Sync
+    // MARK: - Global 4K Sync (Hardened)
+
+    private static let own4kPeersDefaultsKey = "mediatok.4k.own_peers.v1"
+    private static let own4kHeartbeatDefaultsKey = "mediatok.4k.heartbeat.v1"
 
     private static func globalDialogId(for peerKey: GGPeerKey) -> Int64? {
         switch peerKey.namespace {
@@ -546,6 +549,94 @@ public final class GGVisualProfileStore {
         default:
             return nil
         }
+    }
+
+    private static func isAllowedCatboxURL(_ raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let comps = URLComponents(string: trimmed),
+              let scheme = comps.scheme?.lowercased(),
+              scheme == "https",
+              let host = comps.host?.lowercased(),
+              host == "files.catbox.moe",
+              comps.user == nil,
+              comps.password == nil else {
+            return nil
+        }
+        if let port = comps.port, port != 443 {
+            return nil
+        }
+        let path = comps.percentEncodedPath
+        guard path.count > 1, !path.contains(".."), let url = comps.url else {
+            return nil
+        }
+        return url
+    }
+
+    private static func downloadLimitedData(from url: URL, maxBytes: Int64, completion: @escaping (Data?) -> Void) {
+        let req = URLRequest(url: url, timeoutInterval: 45.0)
+        URLSession.shared.downloadTask(with: req) { tempUrl, response, _ in
+            guard let http = response as? HTTPURLResponse,
+                  (200 ... 299).contains(http.statusCode),
+                  let tempUrl else {
+                completion(nil)
+                return
+            }
+            let attrs = try? FileManager.default.attributesOfItem(atPath: tempUrl.path)
+            let fileSize = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+            guard fileSize > 0, fileSize <= maxBytes,
+                  let data = try? Data(contentsOf: tempUrl),
+                  !data.isEmpty,
+                  Int64(data.count) <= maxBytes else {
+                completion(nil)
+                return
+            }
+            completion(data)
+        }.resume()
+    }
+
+    private static func unwrapNtfyJsonLine(_ line: String) -> [String: Any]? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}"),
+              let lineData = trimmed.data(using: .utf8),
+              let outer = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any] else {
+            return nil
+        }
+        if let msgStr = outer["message"] as? String,
+           msgStr.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{"),
+           let innerData = msgStr.data(using: .utf8),
+           let inner = (try? JSONSerialization.jsonObject(with: innerData)) as? [String: Any],
+           inner["ts"] != nil {
+            return inner
+        }
+        if outer["ts"] != nil {
+            return outer
+        }
+        return nil
+    }
+
+    private static func post4kMetadata(photoUrl: String, videoUrl: String?, ts: Int64, dialogId: Int64, completion: (() -> Void)? = nil) {
+        guard let ntfyUrl = URL(string: "https://ntfy.sh/mt4k_v1_\(dialogId)") else {
+            return
+        }
+        var payload: [String: Any] = [
+            "photoUrl": photoUrl,
+            "ts": ts
+        ]
+        if let videoUrl, !videoUrl.isEmpty {
+            payload["videoUrl"] = videoUrl
+        }
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
+            return
+        }
+        var req = URLRequest(url: ntfyUrl, timeoutInterval: 20.0)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("MediaTok/4K", forHTTPHeaderField: "User-Agent")
+        req.httpBody = jsonData
+        URLSession.shared.dataTask(with: req) { _, _, _ in
+            completion?()
+        }.resume()
     }
 
     private static func parseImageDimensions(data: Data) -> (Int, Int) {
@@ -614,12 +705,12 @@ public final class GGVisualProfileStore {
             guard let http = response as? HTTPURLResponse,
                   (200 ... 299).contains(http.statusCode),
                   let respData,
-                  let text = String(data: respData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  text.hasPrefix("https://") else {
+                  let text = String(data: respData, encoding: .utf8),
+                  let allowed = GGVisualProfileStore.isAllowedCatboxURL(text) else {
                 completion(nil)
                 return
             }
-            completion(text)
+            completion(allowed.absoluteString)
         }.resume()
     }
 
@@ -635,37 +726,27 @@ public final class GGVisualProfileStore {
                 return
             }
             let sendMetadata: (String?) -> Void = { videoUrl in
-                guard let ntfyUrl = URL(string: "https://ntfy.sh/mt4k_v1_\(dialogId)") else {
-                    return
-                }
-                var payload: [String: Any] = [
-                    "photoUrl": photoUrl,
-                    "ts": ts
-                ]
-                if let videoUrl, !videoUrl.isEmpty {
-                    payload["videoUrl"] = videoUrl
-                }
-                guard let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
-                    return
-                }
-                var req = URLRequest(url: ntfyUrl, timeoutInterval: 20.0)
-                req.httpMethod = "POST"
-                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                req.setValue("MediaTok/4K", forHTTPHeaderField: "User-Agent")
-                req.httpBody = jsonData
-                URLSession.shared.dataTask(with: req) { _, _, _ in
+                GGVisualProfileStore.post4kMetadata(photoUrl: photoUrl, videoUrl: videoUrl, ts: ts, dialogId: dialogId) {
+                    let keyStr = peerKey.stringValue
+                    var ownSet = Set(UserDefaults.standard.stringArray(forKey: GGVisualProfileStore.own4kPeersDefaultsKey) ?? [])
+                    ownSet.insert(keyStr)
+                    UserDefaults.standard.set(Array(ownSet), forKey: GGVisualProfileStore.own4kPeersDefaultsKey)
+                    var hb = (UserDefaults.standard.dictionary(forKey: GGVisualProfileStore.own4kHeartbeatDefaultsKey) as? [String: Double]) ?? [:]
+                    hb[keyStr] = Date().timeIntervalSince1970
+                    UserDefaults.standard.set(hb, forKey: GGVisualProfileStore.own4kHeartbeatDefaultsKey)
+
                     self.lock.withLock {
                         self.ensureLoadedLocked()
-                        var cur = self.entries[peerKey.stringValue] ?? GGVisualPeerOverride()
+                        var cur = self.entries[keyStr] ?? GGVisualPeerOverride()
                         if cur.remoteUpdatedAt <= ts {
                             cur.remotePhotoUrl = photoUrl
                             cur.remoteVideoUrl = videoUrl ?? ""
                             cur.remoteUpdatedAt = ts
-                            self.entries[peerKey.stringValue] = cur
+                            self.entries[keyStr] = cur
                             self.persistLocked()
                         }
                     }
-                }.resume()
+                }
             }
 
             if let videoData, !videoData.isEmpty {
@@ -683,7 +764,35 @@ public final class GGVisualProfileStore {
         guard let dialogId = GGVisualProfileStore.globalDialogId(for: peerKey) else {
             return
         }
+        let keyStr = peerKey.stringValue
         let now = Date().timeIntervalSince1970
+
+        let ownHeartbeatTarget: (photoUrl: String, videoUrl: String?)? = self.lock.withLock {
+            self.ensureLoadedLocked()
+            let ownSet = Set(UserDefaults.standard.stringArray(forKey: GGVisualProfileStore.own4kPeersDefaultsKey) ?? [])
+            guard ownSet.contains(keyStr),
+                  let existing = self.entries[keyStr],
+                  GGVisualProfileStore.isAllowedCatboxURL(existing.remotePhotoUrl) != nil else {
+                return nil
+            }
+            let hb = (UserDefaults.standard.dictionary(forKey: GGVisualProfileStore.own4kHeartbeatDefaultsKey) as? [String: Double]) ?? [:]
+            let lastHb = hb[keyStr] ?? 0.0
+            if (now - lastHb) >= 28800.0 {
+                var nextHb = hb
+                nextHb[keyStr] = now
+                UserDefaults.standard.set(nextHb, forKey: GGVisualProfileStore.own4kHeartbeatDefaultsKey)
+                let vid = existing.remoteVideoUrl.isEmpty ? nil : existing.remoteVideoUrl
+                return (existing.remotePhotoUrl, vid)
+            }
+            return ("", nil)
+        }
+        if let target = ownHeartbeatTarget {
+            if !target.photoUrl.isEmpty {
+                GGVisualProfileStore.post4kMetadata(photoUrl: target.photoUrl, videoUrl: target.videoUrl, ts: Int64(now), dialogId: dialogId)
+            }
+            return
+        }
+
         let shouldCheck: Bool = self.lock.withLock {
             let prev = self.lastGlobalCheckAt[peerKey] ?? 0.0
             if now - prev < 600.0 {
@@ -692,7 +801,7 @@ public final class GGVisualProfileStore {
             self.lastGlobalCheckAt[peerKey] = now
             return true
         }
-        guard shouldCheck, let url = URL(string: "https://ntfy.sh/mt4k_v1_\(dialogId)/raw?poll=1&since=all") else {
+        guard shouldCheck, let url = URL(string: "https://ntfy.sh/mt4k_v1_\(dialogId)/json?poll=1&since=all") else {
             return
         }
         var req = URLRequest(url: url, timeoutInterval: 15.0)
@@ -701,43 +810,43 @@ public final class GGVisualProfileStore {
             guard let http = response as? HTTPURLResponse,
                   (200 ... 299).contains(http.statusCode),
                   let data,
+                  data.count <= 262_144,
                   let body = String(data: data, encoding: .utf8) else {
                 return
             }
-            let lines = body.components(separatedBy: .newlines).reversed()
+            let maxAllowedTs = Int64(Date().timeIntervalSince1970) + 300
             var latestObj: [String: Any]?
-            for line in lines {
-                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}"),
-                      let lineData = trimmed.data(using: .utf8),
-                      let parsed = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any] else {
+            var latestTs: Int64 = 0
+            for line in body.components(separatedBy: .newlines).reversed() {
+                guard let parsed = GGVisualProfileStore.unwrapNtfyJsonLine(line) else {
                     continue
                 }
                 let p = parsed["photoUrl"] as? String ?? ""
-                let v = parsed["videoUrl"] as? String ?? ""
-                if p.hasPrefix("https://") || v.hasPrefix("https://") {
+                guard GGVisualProfileStore.isAllowedCatboxURL(p) != nil else {
+                    continue
+                }
+                let candidateTs: Int64
+                if let v = parsed["ts"] as? Int64 { candidateTs = v }
+                else if let v = parsed["ts"] as? Int { candidateTs = Int64(v) }
+                else if let v = parsed["ts"] as? Double { candidateTs = Int64(v) }
+                else { candidateTs = 0 }
+                if candidateTs > 0 && candidateTs <= maxAllowedTs && candidateTs > latestTs {
                     latestObj = parsed
-                    break
+                    latestTs = candidateTs
                 }
             }
-            guard let obj = latestObj else {
+            guard let obj = latestObj, latestTs > 0 else {
                 return
             }
-            let remoteTs: Int64
-            if let v = obj["ts"] as? Int64 {
-                remoteTs = v
-            } else if let v = obj["ts"] as? Int {
-                remoteTs = Int64(v)
-            } else if let v = obj["ts"] as? Double {
-                remoteTs = Int64(v)
-            } else {
-                remoteTs = 0
-            }
+            let remoteTs = latestTs
             let photoUrlStr = obj["photoUrl"] as? String ?? ""
-            let videoUrlStr = obj["videoUrl"] as? String ?? ""
-            guard remoteTs > 0, let photoUrl = URL(string: photoUrlStr), photoUrlStr.hasPrefix("https://") else {
+            let rawVideoUrlStr = obj["videoUrl"] as? String ?? ""
+            guard let photoUrl = GGVisualProfileStore.isAllowedCatboxURL(photoUrlStr) else {
                 return
             }
+            let validatedVideoUrl = GGVisualProfileStore.isAllowedCatboxURL(rawVideoUrlStr)
+            let safeVideoUrlStr = validatedVideoUrl?.absoluteString ?? ""
+
             let alreadyNewer = self.lock.withLock {
                 self.ensureLoadedLocked()
                 return remoteTs <= (self.entries[peerKey.stringValue]?.remoteUpdatedAt ?? 0)
@@ -745,10 +854,8 @@ public final class GGVisualProfileStore {
             if alreadyNewer {
                 return
             }
-            URLSession.shared.dataTask(with: photoUrl) { photoData, photoResp, _ in
-                guard let photoHttp = photoResp as? HTTPURLResponse,
-                      (200 ... 299).contains(photoHttp.statusCode),
-                      let photoData, !photoData.isEmpty else {
+            GGVisualProfileStore.downloadLimitedData(from: photoUrl, maxBytes: 15 * 1024 * 1024) { photoData in
+                guard let photoData, !photoData.isEmpty else {
                     return
                 }
                 let (w, h) = GGVisualProfileStore.parseImageDimensions(data: photoData)
@@ -767,28 +874,26 @@ public final class GGVisualProfileStore {
                     }
                     self.lock.withLock {
                         if var updated = self.entries[peerKey.stringValue] {
-                            updated.remotePhotoUrl = photoUrlStr
-                            updated.remoteVideoUrl = videoData != nil ? videoUrlStr : ""
+                            updated.remotePhotoUrl = photoUrl.absoluteString
+                            updated.remoteVideoUrl = videoData != nil ? safeVideoUrlStr : ""
                             updated.remoteUpdatedAt = remoteTs
                             self.entries[peerKey.stringValue] = updated
                             self.persistLocked()
                         }
                     }
                 }
-                if videoUrlStr.hasPrefix("https://"), let videoUrl = URL(string: videoUrlStr) {
-                    URLSession.shared.dataTask(with: videoUrl) { videoData, videoResp, _ in
-                        if let videoHttp = videoResp as? HTTPURLResponse,
-                           (200 ... 299).contains(videoHttp.statusCode),
-                           let videoData, !videoData.isEmpty {
+                if let videoUrl = validatedVideoUrl {
+                    GGVisualProfileStore.downloadLimitedData(from: videoUrl, maxBytes: 25 * 1024 * 1024) { videoData in
+                        if let videoData, !videoData.isEmpty {
                             applyRemote(videoData)
                         } else {
                             applyRemote(nil)
                         }
-                    }.resume()
+                    }
                 } else {
                     applyRemote(nil)
                 }
-            }.resume()
+            }
         }.resume()
     }
 

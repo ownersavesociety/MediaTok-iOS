@@ -95,380 +95,10 @@ enum GGMediaTokTtfCreator {
         return result
     }
 
-    // MARK: - Binary TrueType (.ttf) Compiler
-
-    private struct RectI {
-        let x1: Int
-        let y1: Int
-        let x2: Int
-        let y2: Int
-    }
-
-    private struct CmapSeg {
-        var start: UInt16
-        var end: UInt16
-        let delta: UInt16
-    }
-
-    private struct NameRec {
-        let pid: UInt16
-        let eid: UInt16
-        let lid: UInt16
-        let nid: UInt16
-        let len: UInt16
-        let off: UInt16
-    }
-
-    private static func appendU16(_ d: inout Data, _ v: UInt16) {
-        d.append(UInt8((v >> 8) & 0xFF))
-        d.append(UInt8(v & 0xFF))
-    }
-
-    private static func appendS16(_ d: inout Data, _ v: Int16) {
-        GGMediaTokTtfCreator.appendU16(&d, UInt16(bitPattern: v))
-    }
-
-    private static func appendU32(_ d: inout Data, _ v: UInt32) {
-        d.append(UInt8((v >> 24) & 0xFF))
-        d.append(UInt8((v >> 16) & 0xFF))
-        d.append(UInt8((v >> 8) & 0xFF))
-        d.append(UInt8(v & 0xFF))
-    }
-
-    private static func calcChecksum(_ data: Data) -> UInt32 {
-        var sum: UInt32 = 0
-        let n = data.count
-        var i = 0
-        while i < n {
-            let b0 = UInt32(data[i]) << 24
-            let b1 = (i + 1 < n) ? (UInt32(data[i + 1]) << 16) : 0
-            let b2 = (i + 2 < n) ? (UInt32(data[i + 2]) << 8) : 0
-            let b3 = (i + 3 < n) ? UInt32(data[i + 3]) : 0
-            sum = sum &+ (b0 | b1 | b2 | b3)
-            i += 4
-        }
-        return sum
-    }
-
-    private static func buildSimpleGlyph(_ rects: [RectI]) -> Data {
-        if rects.isEmpty {
-            return Data()
-        }
-        var xMin = Int.max
-        var yMin = Int.max
-        var xMax = Int.min
-        var yMax = Int.min
-        for r in rects {
-            xMin = min(xMin, min(r.x1, r.x2))
-            xMax = max(xMax, max(r.x1, r.x2))
-            yMin = min(yMin, min(r.y1, r.y2))
-            yMax = max(yMax, max(r.y1, r.y2))
-        }
-        var out = Data()
-        GGMediaTokTtfCreator.appendS16(&out, Int16(rects.count))
-        GGMediaTokTtfCreator.appendS16(&out, Int16(xMin))
-        GGMediaTokTtfCreator.appendS16(&out, Int16(yMin))
-        GGMediaTokTtfCreator.appendS16(&out, Int16(xMax))
-        GGMediaTokTtfCreator.appendS16(&out, Int16(yMax))
-        for i in 0 ..< rects.count {
-            GGMediaTokTtfCreator.appendU16(&out, UInt16(i * 4 + 3))
-        }
-        GGMediaTokTtfCreator.appendU16(&out, 0)
-        out.append(contentsOf: [UInt8](repeating: 1, count: rects.count * 4))
-        var prevX = 0
-        for r in rects {
-            for x in [r.x1, r.x1, r.x2, r.x2] {
-                GGMediaTokTtfCreator.appendS16(&out, Int16(x - prevX))
-                prevX = x
-            }
-        }
-        var prevY = 0
-        for r in rects {
-            for y in [r.y1, r.y2, r.y2, r.y1] {
-                GGMediaTokTtfCreator.appendS16(&out, Int16(y - prevY))
-                prevY = y
-            }
-        }
-        while out.count % 4 != 0 {
-            out.append(0)
-        }
-        return out
-    }
+    // MARK: - Binary TrueType (.ttf) Compiler (delegated to GGMediaTokCoreLogic)
 
     static func compileTtf(fontNameRaw: String, grids: [Character: [Bool]], pixelStyle: Int) -> Data {
-        let trimmed = fontNameRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fontName = trimmed.isEmpty ? "MediaTok Custom" : trimmed
-        let cellW = (pixelStyle == 2) ? 82 : 76
-        let cellH = 82
-        let gap = (pixelStyle == 1) ? 10 : 0
-        let slantPerRow = (pixelStyle == 3) ? 14 : 0
-        let baselineRow = 9
-
-        var charRects: [UInt16: [RectI]] = [32: []]
-        for (ch, grid) in grids {
-            guard ch.unicodeScalars.count == 1,
-                  let scalar = ch.unicodeScalars.first,
-                  scalar.value <= 0xFFFF,
-                  scalar.value != 32,
-                  grid.count == GGMediaTokTtfCreator.gridW * GGMediaTokTtfCreator.gridH else {
-                continue
-            }
-            var rects: [RectI] = []
-            for row in 0 ..< GGMediaTokTtfCreator.gridH {
-                let yBottom = (baselineRow - row) * cellH + gap / 2
-                let yTop = (baselineRow - row + 1) * cellH - gap / 2
-                let slant = (baselineRow - row) * slantPerRow
-                var col = 0
-                while col < GGMediaTokTtfCreator.gridW {
-                    if !grid[row * GGMediaTokTtfCreator.gridW + col] {
-                        col += 1
-                        continue
-                    }
-                    let startCol = col
-                    if pixelStyle == 1 {
-                        rects.append(RectI(x1: 40 + startCol * cellW + gap / 2 + slant, y1: yBottom, x2: 40 + (startCol + 1) * cellW - gap / 2 + slant, y2: yTop))
-                        col += 1
-                    } else {
-                        while col < GGMediaTokTtfCreator.gridW && grid[row * GGMediaTokTtfCreator.gridW + col] {
-                            col += 1
-                        }
-                        rects.append(RectI(x1: 40 + startCol * cellW + slant, y1: yBottom, x2: 40 + col * cellW + slant, y2: yTop))
-                    }
-                }
-            }
-            charRects[UInt16(scalar.value)] = rects
-        }
-
-        let cps = charRects.keys.filter { $0 != 32 }.sorted()
-        var glyphOrder: [UInt16] = [0, 32]
-        glyphOrder.append(contentsOf: cps)
-        var cpToGid: [UInt16: UInt16] = [32: 1]
-        for (idx, cp) in cps.enumerated() {
-            cpToGid[cp] = UInt16(idx + 2)
-        }
-        let numGlyphs = UInt16(glyphOrder.count)
-
-        var glyf = Data()
-        var loca = Data()
-        var hmtx = Data()
-        var maxPoints: UInt16 = 0
-        var maxContours: UInt16 = 0
-
-        for gid in 0 ..< Int(numGlyphs) {
-            GGMediaTokTtfCreator.appendU32(&loca, UInt32(glyf.count))
-            let cp = glyphOrder[gid]
-            let rects: [RectI]
-            let adv: UInt16
-            let lsb: Int16
-            if gid == 0 {
-                rects = [RectI(x1: 80, y1: 0, x2: 520, y2: 720)]
-                adv = 600
-                lsb = 80
-            } else if cp == 32 {
-                rects = []
-                adv = 400
-                lsb = 0
-            } else {
-                rects = charRects[cp] ?? []
-                if !rects.isEmpty {
-                    let xMin = rects.map { min($0.x1, $0.x2) }.min() ?? 0
-                    let xMax = rects.map { max($0.x1, $0.x2) }.max() ?? 400
-                    adv = UInt16(max(440, xMax + 70))
-                    lsb = Int16(xMin)
-                } else {
-                    adv = 400
-                    lsb = 0
-                }
-            }
-            glyf.append(GGMediaTokTtfCreator.buildSimpleGlyph(rects))
-            GGMediaTokTtfCreator.appendU16(&hmtx, adv)
-            GGMediaTokTtfCreator.appendS16(&hmtx, lsb)
-            maxPoints = max(maxPoints, UInt16(rects.count * 4))
-            maxContours = max(maxContours, UInt16(rects.count))
-        }
-        GGMediaTokTtfCreator.appendU32(&loca, UInt32(glyf.count))
-
-        // cmap format 4
-        let mappedCps = cpToGid.keys.sorted()
-        var segs: [CmapSeg] = []
-        for cp in mappedCps {
-            let gid = cpToGid[cp] ?? 0
-            let delta = UInt16((Int(gid) - Int(cp)) & 0xFFFF)
-            if !segs.isEmpty && cp == segs[segs.count - 1].end &+ 1 && delta == segs[segs.count - 1].delta {
-                segs[segs.count - 1].end = cp
-            } else {
-                segs.append(CmapSeg(start: cp, end: cp, delta: delta))
-            }
-        }
-        segs.append(CmapSeg(start: 0xFFFF, end: 0xFFFF, delta: 1))
-        let segCount = UInt16(segs.count)
-        var pow2: UInt16 = 1
-        var es: UInt16 = 0
-        while pow2 * 2 <= segCount {
-            pow2 *= 2
-            es += 1
-        }
-        let sr = pow2 * 2
-        let rs = segCount * 2 - sr
-
-        var fmt4 = Data()
-        GGMediaTokTtfCreator.appendU16(&fmt4, 4)
-        GGMediaTokTtfCreator.appendU16(&fmt4, 16 + segCount * 8)
-        GGMediaTokTtfCreator.appendU16(&fmt4, 0)
-        GGMediaTokTtfCreator.appendU16(&fmt4, segCount * 2)
-        GGMediaTokTtfCreator.appendU16(&fmt4, sr)
-        GGMediaTokTtfCreator.appendU16(&fmt4, es)
-        GGMediaTokTtfCreator.appendU16(&fmt4, rs)
-        for s in segs { GGMediaTokTtfCreator.appendU16(&fmt4, s.end) }
-        GGMediaTokTtfCreator.appendU16(&fmt4, 0)
-        for s in segs { GGMediaTokTtfCreator.appendU16(&fmt4, s.start) }
-        for s in segs { GGMediaTokTtfCreator.appendU16(&fmt4, s.delta) }
-        for _ in segs { GGMediaTokTtfCreator.appendU16(&fmt4, 0) }
-
-        var cmap = Data()
-        GGMediaTokTtfCreator.appendU16(&cmap, 0)
-        GGMediaTokTtfCreator.appendU16(&cmap, 2)
-        GGMediaTokTtfCreator.appendU16(&cmap, 0); GGMediaTokTtfCreator.appendU16(&cmap, 3); GGMediaTokTtfCreator.appendU32(&cmap, 20)
-        GGMediaTokTtfCreator.appendU16(&cmap, 3); GGMediaTokTtfCreator.appendU16(&cmap, 1); GGMediaTokTtfCreator.appendU32(&cmap, 20)
-        cmap.append(fmt4)
-
-        // name table
-        let asciiPs = fontName.filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
-        let safePs = asciiPs.isEmpty ? "MediaTokCustom" : asciiPs
-        let namePairs: [(UInt16, String)] = [
-            (1, fontName), (2, "Regular"), (3, "MediaTok-\(safePs)"),
-            (4, fontName), (5, "Version 1.0"), (6, safePs)
-        ]
-        var recs: [NameRec] = []
-        var strBlob = Data()
-        for (nid, s) in namePairs {
-            var b = Data()
-            for scalar in s.unicodeScalars {
-                b.append((scalar.value >= 32 && scalar.value <= 126) ? UInt8(scalar.value) : UInt8(63))
-            }
-            recs.append(NameRec(pid: 1, eid: 0, lid: 0, nid: nid, len: UInt16(b.count), off: UInt16(strBlob.count)))
-            strBlob.append(b)
-        }
-        for (nid, s) in namePairs {
-            var b = Data()
-            for unit in s.utf16 {
-                GGMediaTokTtfCreator.appendU16(&b, unit)
-            }
-            recs.append(NameRec(pid: 3, eid: 1, lid: 0x0409, nid: nid, len: UInt16(b.count), off: UInt16(strBlob.count)))
-            strBlob.append(b)
-        }
-        recs.sort { ($0.pid, $0.eid, $0.lid, $0.nid) < ($1.pid, $1.eid, $1.lid, $1.nid) }
-        var nameTbl = Data()
-        GGMediaTokTtfCreator.appendU16(&nameTbl, 0)
-        GGMediaTokTtfCreator.appendU16(&nameTbl, UInt16(recs.count))
-        GGMediaTokTtfCreator.appendU16(&nameTbl, UInt16(6 + recs.count * 12))
-        for r in recs {
-            GGMediaTokTtfCreator.appendU16(&nameTbl, r.pid)
-            GGMediaTokTtfCreator.appendU16(&nameTbl, r.eid)
-            GGMediaTokTtfCreator.appendU16(&nameTbl, r.lid)
-            GGMediaTokTtfCreator.appendU16(&nameTbl, r.nid)
-            GGMediaTokTtfCreator.appendU16(&nameTbl, r.len)
-            GGMediaTokTtfCreator.appendU16(&nameTbl, r.off)
-        }
-        nameTbl.append(strBlob)
-
-        var head = Data()
-        GGMediaTokTtfCreator.appendU32(&head, 0x00010000); GGMediaTokTtfCreator.appendU32(&head, 0x00010000)
-        GGMediaTokTtfCreator.appendU32(&head, 0); GGMediaTokTtfCreator.appendU32(&head, 0x5F0F3CF5)
-        GGMediaTokTtfCreator.appendU16(&head, 0x000B); GGMediaTokTtfCreator.appendU16(&head, 1000)
-        for _ in 0 ..< 4 { GGMediaTokTtfCreator.appendU32(&head, 0) }
-        GGMediaTokTtfCreator.appendS16(&head, 0); GGMediaTokTtfCreator.appendS16(&head, -200)
-        GGMediaTokTtfCreator.appendS16(&head, 1000); GGMediaTokTtfCreator.appendS16(&head, 900)
-        GGMediaTokTtfCreator.appendU16(&head, 0); GGMediaTokTtfCreator.appendU16(&head, 8)
-        GGMediaTokTtfCreator.appendS16(&head, 2); GGMediaTokTtfCreator.appendS16(&head, 1); GGMediaTokTtfCreator.appendS16(&head, 0)
-
-        var hhea = Data()
-        GGMediaTokTtfCreator.appendU32(&hhea, 0x00010000)
-        GGMediaTokTtfCreator.appendS16(&hhea, 850); GGMediaTokTtfCreator.appendS16(&hhea, -200)
-        GGMediaTokTtfCreator.appendS16(&hhea, 50); GGMediaTokTtfCreator.appendU16(&hhea, 1000)
-        GGMediaTokTtfCreator.appendS16(&hhea, 0); GGMediaTokTtfCreator.appendS16(&hhea, 0)
-        GGMediaTokTtfCreator.appendS16(&hhea, 1000); GGMediaTokTtfCreator.appendS16(&hhea, 1)
-        for _ in 0 ..< 7 { GGMediaTokTtfCreator.appendS16(&hhea, 0) }
-        GGMediaTokTtfCreator.appendU16(&hhea, numGlyphs)
-
-        var maxp = Data()
-        GGMediaTokTtfCreator.appendU32(&maxp, 0x00010000)
-        GGMediaTokTtfCreator.appendU16(&maxp, numGlyphs)
-        GGMediaTokTtfCreator.appendU16(&maxp, maxPoints)
-        GGMediaTokTtfCreator.appendU16(&maxp, maxContours)
-        GGMediaTokTtfCreator.appendU16(&maxp, 0); GGMediaTokTtfCreator.appendU16(&maxp, 0); GGMediaTokTtfCreator.appendU16(&maxp, 2)
-        for _ in 0 ..< 8 { GGMediaTokTtfCreator.appendU16(&maxp, 0) }
-
-        var os2 = Data()
-        GGMediaTokTtfCreator.appendU16(&os2, 3); GGMediaTokTtfCreator.appendS16(&os2, 600)
-        GGMediaTokTtfCreator.appendU16(&os2, 400); GGMediaTokTtfCreator.appendU16(&os2, 5); GGMediaTokTtfCreator.appendS16(&os2, 0)
-        GGMediaTokTtfCreator.appendS16(&os2, 650); GGMediaTokTtfCreator.appendS16(&os2, 600); GGMediaTokTtfCreator.appendS16(&os2, 0); GGMediaTokTtfCreator.appendS16(&os2, 75)
-        GGMediaTokTtfCreator.appendS16(&os2, 650); GGMediaTokTtfCreator.appendS16(&os2, 600); GGMediaTokTtfCreator.appendS16(&os2, 0); GGMediaTokTtfCreator.appendS16(&os2, 350)
-        GGMediaTokTtfCreator.appendS16(&os2, 50); GGMediaTokTtfCreator.appendS16(&os2, 300); GGMediaTokTtfCreator.appendS16(&os2, 0)
-        os2.append(contentsOf: [2, 0, 5, 3, 0, 0, 0, 0, 0, 0])
-        GGMediaTokTtfCreator.appendU32(&os2, 0x00000201); GGMediaTokTtfCreator.appendU32(&os2, 0); GGMediaTokTtfCreator.appendU32(&os2, 0); GGMediaTokTtfCreator.appendU32(&os2, 0)
-        os2.append(contentsOf: [UInt8]("MTOK".utf8))
-        GGMediaTokTtfCreator.appendU16(&os2, 0x0040); GGMediaTokTtfCreator.appendU16(&os2, 32)
-        GGMediaTokTtfCreator.appendU16(&os2, mappedCps.last ?? 0x04FF)
-        GGMediaTokTtfCreator.appendS16(&os2, 850); GGMediaTokTtfCreator.appendS16(&os2, -200); GGMediaTokTtfCreator.appendS16(&os2, 50)
-        GGMediaTokTtfCreator.appendU16(&os2, 900); GGMediaTokTtfCreator.appendU16(&os2, 250)
-        GGMediaTokTtfCreator.appendU32(&os2, 0x00000005); GGMediaTokTtfCreator.appendU32(&os2, 0)
-        GGMediaTokTtfCreator.appendS16(&os2, 500); GGMediaTokTtfCreator.appendS16(&os2, 720)
-        GGMediaTokTtfCreator.appendU16(&os2, 0); GGMediaTokTtfCreator.appendU16(&os2, 32); GGMediaTokTtfCreator.appendU16(&os2, 0)
-
-        var post = Data()
-        GGMediaTokTtfCreator.appendU32(&post, 0x00030000); GGMediaTokTtfCreator.appendU32(&post, 0)
-        GGMediaTokTtfCreator.appendS16(&post, -100); GGMediaTokTtfCreator.appendS16(&post, 50)
-        for _ in 0 ..< 5 { GGMediaTokTtfCreator.appendU32(&post, 0) }
-
-        let tables: [(String, Data)] = [
-            ("OS/2", os2), ("cmap", cmap), ("glyf", glyf), ("head", head),
-            ("hhea", hhea), ("hmtx", hmtx), ("loca", loca), ("maxp", maxp),
-            ("name", nameTbl), ("post", post)
-        ].sorted { $0.0 < $1.0 }
-
-        let nt = UInt16(tables.count)
-        var tpow2: UInt16 = 1
-        var tes: UInt16 = 0
-        while tpow2 * 2 <= nt {
-            tpow2 *= 2
-            tes += 1
-        }
-        let tsr = tpow2 * 16
-        let trs = nt * 16 - tsr
-
-        var full = Data()
-        GGMediaTokTtfCreator.appendU32(&full, 0x00010000)
-        GGMediaTokTtfCreator.appendU16(&full, nt)
-        GGMediaTokTtfCreator.appendU16(&full, tsr)
-        GGMediaTokTtfCreator.appendU16(&full, tes)
-        GGMediaTokTtfCreator.appendU16(&full, trs)
-
-        var offset = UInt32(12 + Int(nt) * 16)
-        var headOffset = 0
-        var body = Data()
-        for (tag, data) in tables {
-            full.append(contentsOf: [UInt8](tag.utf8))
-            GGMediaTokTtfCreator.appendU32(&full, GGMediaTokTtfCreator.calcChecksum(data))
-            GGMediaTokTtfCreator.appendU32(&full, offset)
-            GGMediaTokTtfCreator.appendU32(&full, UInt32(data.count))
-            if tag == "head" {
-                headOffset = Int(offset)
-            }
-            body.append(data)
-            let pad = (4 - (data.count % 4)) % 4
-            if pad > 0 {
-                body.append(contentsOf: [UInt8](repeating: 0, count: pad))
-            }
-            offset += UInt32(data.count + pad)
-        }
-        full.append(body)
-        let adj = UInt32(0xB1B0AFBA) &- GGMediaTokTtfCreator.calcChecksum(full)
-        full[headOffset + 8] = UInt8((adj >> 24) & 0xFF)
-        full[headOffset + 9] = UInt8((adj >> 16) & 0xFF)
-        full[headOffset + 10] = UInt8((adj >> 8) & 0xFF)
-        full[headOffset + 11] = UInt8(adj & 0xFF)
-        return full
+        return GGMediaTokCoreLogic.compileTtf(fontNameRaw: fontNameRaw, grids: grids, pixelStyle: pixelStyle)
     }
 }
 
@@ -510,6 +140,9 @@ private final class GGGlyphCanvasView: UIView {
     }
 
     private func cellIndex(at point: CGPoint) -> Int {
+        guard self.bounds.width > 0.0, self.bounds.height > 0.0 else {
+            return 0
+        }
         let c = max(0, min(GGMediaTokTtfCreator.gridW - 1, Int(point.x / (self.bounds.width / CGFloat(GGMediaTokTtfCreator.gridW)))))
         let r = max(0, min(GGMediaTokTtfCreator.gridH - 1, Int(point.y / (self.bounds.height / CGFloat(GGMediaTokTtfCreator.gridH)))))
         return r * GGMediaTokTtfCreator.gridW + c
@@ -798,7 +431,10 @@ private final class GGTtfCreatorViewController: UIViewController {
         }
 
         GGCustomFonts.importFont(at: tempURL) { [weak self] result in
-            guard let strongSelf = self else { return }
+            guard let strongSelf = self else {
+                try? FileManager.default.removeItem(at: tempURL)
+                return
+            }
             switch result {
             case let .added(font):
                 let alert = UIAlertController(
@@ -808,6 +444,9 @@ private final class GGTtfCreatorViewController: UIViewController {
                 )
                 alert.addAction(UIAlertAction(title: "Поделиться .ttf", style: .default, handler: { _ in
                     let share = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
+                    share.completionWithItemsHandler = { _, _, _, _ in
+                        try? FileManager.default.removeItem(at: tempURL)
+                    }
                     if let pop = share.popoverPresentationController {
                         pop.sourceView = strongSelf.view
                         pop.sourceRect = CGRect(x: strongSelf.view.bounds.midX, y: strongSelf.view.bounds.midY, width: 0.0, height: 0.0)
@@ -816,12 +455,15 @@ private final class GGTtfCreatorViewController: UIViewController {
                     strongSelf.present(share, animated: true)
                 }))
                 alert.addAction(UIAlertAction(title: "Готово", style: .cancel, handler: { _ in
+                    try? FileManager.default.removeItem(at: tempURL)
                     strongSelf.dismiss(animated: true)
                 }))
                 strongSelf.present(alert, animated: true)
             case .notAFont:
+                try? FileManager.default.removeItem(at: tempURL)
                 strongSelf.showAlert(title: "Ошибка", message: "CoreText не смог прочитать собранный шрифт")
             case .tooMany:
+                try? FileManager.default.removeItem(at: tempURL)
                 strongSelf.showAlert(title: "Лимит", message: GGStrings.Appearance.Font.tooMany)
             }
         }

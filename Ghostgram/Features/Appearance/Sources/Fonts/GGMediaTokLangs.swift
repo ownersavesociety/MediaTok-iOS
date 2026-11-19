@@ -258,9 +258,13 @@ enum GGMediaTokLangs {
             return presentationData
         }
         let primary = presentationData.strings.primaryComponent
+        let secondaryDict = presentationData.strings.secondaryComponent?.dict
         var merged = primary.dict
         for (k, v) in custom where !v.isEmpty {
-            merged[k] = v
+            let orig = primary.dict[k] ?? secondaryDict?[k] ?? ""
+            if GGMediaTokCoreLogic.isFormatSafe(original: orig, candidate: v) {
+                merged[k] = v
+            }
         }
         let newPrimary = PresentationStrings.Component(
             languageCode: primary.languageCode,
@@ -559,6 +563,12 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
                 var map = GGMediaTokLangs.overrides
                 if newVal.isEmpty || newVal == orig {
                     map.removeValue(forKey: item.key)
+                } else if !GGMediaTokCoreLogic.isFormatSafe(original: orig, candidate: newVal) {
+                    strongSelf.showAlert(
+                        title: "Небезопасный формат",
+                        message: "В переводе должны точно совпадать подстановки из оригинала (например %@ или %d), а %s и %n запрещены, чтобы клиент не вылетал."
+                    )
+                    return
                 } else {
                     map[item.key] = newVal
                 }
@@ -583,20 +593,29 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
                 }
             } else if indexPath.row == 1 {
                 guard let raw = UIPasteboard.general.string,
+                      raw.count <= 2_000_000,
                       let data = raw.data(using: .utf8),
-                      let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: String] else {
-                    self.showAlert(title: "Ошибка", message: "В буфере обмена нет корректного JSON языка.")
+                      let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: String],
+                      dict.count <= 20_000 else {
+                    self.showAlert(title: "Ошибка", message: "В буфере обмена нет корректного JSON языка (или он слишком большой).")
                     return
                 }
                 var merged = GGMediaTokLangs.overrides
                 var count = 0
+                var skipped = 0
                 for (k, v) in dict where !k.isEmpty && !v.isEmpty {
-                    merged[k] = v
-                    count += 1
+                    let orig = self.baseDict[k] ?? ""
+                    if GGMediaTokCoreLogic.isFormatSafe(original: orig, candidate: v) {
+                        merged[k] = v
+                        count += 1
+                    } else {
+                        skipped += 1
+                    }
                 }
                 GGMediaTokLangs.saveOverrides(merged)
                 self.refreshData()
-                self.showAlert(title: "Импортировано", message: "Применено \(count) фраз LIVE!")
+                let extra = skipped > 0 ? "\nПропущено небезопасных строк: \(skipped)." : ""
+                self.showAlert(title: "Импортировано", message: "Применено \(count) фраз LIVE!\(extra)")
             } else {
                 GGMediaTokLangs.saveOverrides([:])
                 self.refreshData()

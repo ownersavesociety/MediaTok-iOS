@@ -152,11 +152,15 @@ enum GGMediaTokFonts {
         return familyName
     }
 
+    private static let menuFontsLock = NSLock()
     private static var menuFonts: [String: UIFont] = [:]
 
     static func menuFont(_ font: GGBundledFont, size: CGFloat) -> UIFont? {
         let key = "\(font.slug)_\(size)"
-        if let cached = GGMediaTokFonts.menuFonts[key] {
+        GGMediaTokFonts.menuFontsLock.lock()
+        let cached = GGMediaTokFonts.menuFonts[key]
+        GGMediaTokFonts.menuFontsLock.unlock()
+        if let cached {
             return cached
         }
         guard let url = GGMediaTokFonts.fileURL(font),
@@ -165,7 +169,9 @@ enum GGMediaTokFonts {
             return nil
         }
         let result = CTFontCreateWithFontDescriptor(first, size, nil) as UIFont
+        GGMediaTokFonts.menuFontsLock.lock()
         GGMediaTokFonts.menuFonts[key] = result
+        GGMediaTokFonts.menuFontsLock.unlock()
         return result
     }
 }

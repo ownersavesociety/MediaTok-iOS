@@ -58,6 +58,17 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE"
           df -h
 
+      - name: Run MediaTok Security & Core Logic Tests (macOS Swift 6.3)
+        run: |
+          set -euxo pipefail
+          cd /Users/Shared/telegram-ios
+          swiftc -parse-as-library -warnings-as-errors -O \
+            Ghostgram/Features/Appearance/Sources/MediaTok/GGMediaTokCoreLogic.swift \
+            Ghostgram/Features/Appearance/Tests/GGMediaTokSecurityTestsMain.swift \
+            -o /tmp/mediatok_security_tests
+          /tmp/mediatok_security_tests
+          rm -f /tmp/mediatok_security_tests
+
       - name: Build MediaTok Ghost IPA
         run: |
           set -euxo pipefail

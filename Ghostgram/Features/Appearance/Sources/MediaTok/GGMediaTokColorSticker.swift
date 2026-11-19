@@ -166,7 +166,8 @@ enum GGMediaTokColorSticker {
         return base
     }
 
-    private static func renderStickerImage(text: String, colors: [UIColor], glowColor: UIColor) -> (image: UIImage, width: Int, height: Int)? {
+    private static func renderStickerImage(text rawText: String, colors: [UIColor], glowColor: UIColor) -> (image: UIImage, width: Int, height: Int)? {
+        let text = String(rawText.prefix(220))
         let maxW: CGFloat = 512.0
         let padX: CGFloat = 24.0
         let padY: CGFloat = 24.0
@@ -179,8 +180,10 @@ enum GGMediaTokColorSticker {
             fontSize = 64.0
         } else if text.count <= 60 {
             fontSize = 48.0
+        } else if text.count <= 120 {
+            fontSize = 30.0
         } else {
-            fontSize = 36.0
+            fontSize = 24.0
         }
         let font = GGMediaTokColorSticker.activeFont(size: fontSize)
 

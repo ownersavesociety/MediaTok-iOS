@@ -76,6 +76,7 @@ swift_library(
         "//submodules/ContextUI:ContextUI",
         "//submodules/WebPBinding:WebPBinding",
         "//Ghostgram/Features/Voice:GGVoiceDSP",
+        "//submodules/OpusBinding:OpusBinding",
     ],
     visibility = [
         "//visibility:public",
@@ -89,9 +90,8 @@ swift_test(
     name = "GGAppearanceChoicesTests",
     srcs = [
         "Settings/Sources/GGAppearanceChoices.swift",
-    ] + glob([
-        "Tests/**/*.swift",
-    ]),
+        "Tests/GGAppearanceChoicesTests.swift",
+    ],
     copts = [
         "-warnings-as-errors",
     ],

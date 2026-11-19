@@ -177,20 +177,26 @@ enum GGCustomFonts {
 
     // MARK: Menu (main thread)
 
+    private static let menuFontsLock = NSLock()
     private static var menuFonts: [String: UIFont] = [:]
 
     /// The font's regular face for the menu sample, read straight from its file (not registered:
     /// a font added in this session is drawn before any restart). Cached per file.
     static func menuFont(_ font: GGCustomFont, size: CGFloat) -> UIFont? {
         let key = "\(font.fileName)_\(size)"
-        if let cached = GGCustomFonts.menuFonts[key] {
+        GGCustomFonts.menuFontsLock.lock()
+        let cached = GGCustomFonts.menuFonts[key]
+        GGCustomFonts.menuFontsLock.unlock()
+        if let cached {
             return cached
         }
         guard let url = GGCustomFonts.fileURL(font), let descriptors = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor], let first = descriptors.first else {
             return nil
         }
         let result = CTFontCreateWithFontDescriptor(first, size, nil) as UIFont
+        GGCustomFonts.menuFontsLock.lock()
         GGCustomFonts.menuFonts[key] = result
+        GGCustomFonts.menuFontsLock.unlock()
         return result
     }
 }
