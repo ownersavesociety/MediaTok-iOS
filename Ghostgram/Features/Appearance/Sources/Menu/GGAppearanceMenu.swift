@@ -122,6 +122,59 @@ enum GGAppearanceMenu {
             }
         ))
 
+        // Discord-style Profile Studio (4K banner + animated effects + avatar frame + Steam & Roblox + global sync).
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.discordProfile",
+            section: .main(of: tab),
+            order: 190,
+            title: { GGStrings.Appearance.DiscordProfile.title },
+            subtitle: { GGStrings.Appearance.DiscordProfile.subtitle },
+            kind: .action({ context in
+                GGMediaTokDiscordProfile.presentOwnEditor(context: context)
+            }),
+            searchKeywords: { [GGStrings.Appearance.DiscordProfile.keywords] },
+            label: { context in
+                let p = GGDiscordProfileStore.shared.profile(for: context.context.account.peerId)
+                return (p != nil && !(p?.isEmpty ?? true)) ? "ON" : "4K"
+            }
+        ))
+
+        // Per-chat AES-256-GCM E2E Encryption manager.
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.e2e",
+            section: .main(of: tab),
+            order: 200,
+            title: { GGStrings.Appearance.E2e.title },
+            subtitle: { GGStrings.Appearance.E2e.subtitle },
+            kind: .action({ context in
+                GGMediaTokE2E.presentManager(context: context)
+            }),
+            searchKeywords: { [GGStrings.Appearance.E2e.keywords] },
+            label: { _ in
+                let n = GGMediaTokE2E.activeCount
+                return n > 0 ? "\(n)" : "AES"
+            }
+        ))
+
+        // Quick cheat-sheet for inline chat commands (.color, .c, .f, .e2e).
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.commands",
+            section: .main(of: tab),
+            order: 210,
+            title: { GGStrings.Appearance.Commands.title },
+            subtitle: { GGStrings.Appearance.Commands.subtitle },
+            kind: .action({ context in
+                let alert = UIAlertController(
+                    title: "Команды MediaTok в любом чате",
+                    message: "• .color <цвет|градиент> <текст> — цветной прозрачный WebP-стикер (red, fire, neon, cyber, sunset, gold, ocean, toxic, sakura, rainbow, #HEX1-#HEX2)\n• .c <выражение / валюта> — калькулятор и живые курсы (.c 100 usd, .c 5000 руб в долл, .c 10 ton в руб, .c! только ответ)\n• .f <стиль> <текст> — 32 Unicode-шрифта (видят все)\n• .e2e on <пароль> / .e2e off — шифрование AES-256-GCM для чата",
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: "Понятно", style: .default))
+                context.presentNative(alert)
+            }),
+            searchKeywords: { [GGStrings.Appearance.Commands.keywords] }
+        ))
+
         // Bubbles.
         GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: GGAppearanceMenu.messagesBubbles, screen: .tab(tab), order: 300, header: { GGStrings.Appearance.Bubbles.header }, footer: { _ in GGStrings.Appearance.Bubbles.footer }))
         let editorOn: (GGMenuContext) -> Bool = { _ in GGAppearanceSettings.bubbleEditor.value }

@@ -73,6 +73,8 @@ swift_library(
         "//submodules/WallpaperBackgroundNode:WallpaperBackgroundNode",
         "//submodules/TextFormat:TextFormat",
         "//submodules/LocalizedPeerData:LocalizedPeerData",
+        "//submodules/ContextUI:ContextUI",
+        "//submodules/WebPBinding:WebPBinding",
     ],
     visibility = [
         "//visibility:public",

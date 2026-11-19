@@ -870,6 +870,23 @@ public enum GGStrings {
             }
         }
 
+        public enum Commands {
+            /// commands color sticker calculator currency rate e2e font
+            public static var keywords: Swift.String {
+                return GGLocalization.shared.string("appearance.commands.keywords")
+            }
+
+            /// .color stickers, .c calc/currency, .f fonts, .e2e
+            public static var subtitle: Swift.String {
+                return GGLocalization.shared.string("appearance.commands.subtitle")
+            }
+
+            /// MediaTok Chat Commands
+            public static var title: Swift.String {
+                return GGLocalization.shared.string("appearance.commands.title")
+            }
+        }
+
         public enum Common {
             /// Auto
             public static var automatic: Swift.String {
@@ -884,6 +901,40 @@ public enum GGStrings {
             /// {value} pt
             public static func points(value: Swift.String) -> Swift.String {
                 return GGLocalization.shared.format("appearance.common.points", [("value", value)])
+            }
+        }
+
+        public enum DiscordProfile {
+            /// discord banner 4k effect frame steam roblox profile sync
+            public static var keywords: Swift.String {
+                return GGLocalization.shared.string("appearance.discordProfile.keywords")
+            }
+
+            /// 4K banner, effects, avatar frames, Steam & Roblox (global)
+            public static var subtitle: Swift.String {
+                return GGLocalization.shared.string("appearance.discordProfile.subtitle")
+            }
+
+            /// Discord Profile, Steam & Roblox
+            public static var title: Swift.String {
+                return GGLocalization.shared.string("appearance.discordProfile.title")
+            }
+        }
+
+        public enum E2e {
+            /// e2e encryption aes key password secret chat
+            public static var keywords: Swift.String {
+                return GGLocalization.shared.string("appearance.e2e.keywords")
+            }
+
+            /// Per-chat AES-256-GCM encryption with shared passphrase
+            public static var subtitle: Swift.String {
+                return GGLocalization.shared.string("appearance.e2e.subtitle")
+            }
+
+            /// Per-Chat E2E Encryption
+            public static var title: Swift.String {
+                return GGLocalization.shared.string("appearance.e2e.title")
             }
         }
 
