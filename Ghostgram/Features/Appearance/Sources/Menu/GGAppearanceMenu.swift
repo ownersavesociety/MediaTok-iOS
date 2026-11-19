@@ -26,13 +26,20 @@ enum GGAppearanceMenu {
     static let profileBackground = GGMenuSectionID("appearance.profileSettings.profileBackground")
     // The font tab.
     static let fontTab = GGMenuTabID("appearance.font")
+    static let fontCustom = GGMenuSectionID("appearance.font.custom")
+    static let fontBundled = GGMenuSectionID("appearance.font.bundled")
     static let fontSystem = GGMenuSectionID("appearance.font.systemDesigns")
     static let fontFamilies = GGMenuSectionID("appearance.font.families")
-    static let fontCustom = GGMenuSectionID("appearance.font.custom")
+    // The stylish outgoing chat text font tab.
+    static let chatFontTab = GGMenuTabID("appearance.chatFont")
+    static let chatFontDisable = GGMenuSectionID("appearance.chatFont.disable")
+    static let chatFontCyrillic = GGMenuSectionID("appearance.chatFont.cyrillic")
+    static let chatFontMath = GGMenuSectionID("appearance.chatFont.math")
 
     static func register() {
         GGAppearanceMenu.registerMessages()
         GGAppearanceMenu.registerFont()
+        GGAppearanceMenu.registerChatFont()
         GGAppearanceMenu.registerTheme()
         GGAppearanceMenu.registerProfile()
     }
@@ -85,6 +92,17 @@ enum GGAppearanceMenu {
             searchKeywords: { [GGStrings.Appearance.Font.keywords] }
         ), linkIn: .main(of: tab), order: 100, subtitle: { GGStrings.Appearance.Font.subtitle }, icon: .bundle("Chat/Context Menu/FormatText"), label: { _ in
             return GGFonts.selectedDisplayName
+        })
+
+        // Stylish outgoing chat text fonts (32 Unicode + Cyrillic styles visible to everyone).
+        GGMenuRegistry.register(tab: GGMenuTabDescriptor(
+            id: GGAppearanceMenu.chatFontTab,
+            parent: .tab(tab),
+            title: { GGStrings.Appearance.ChatFont.title },
+            topView: GGMenuTopView(content: .emoji("✨"), text: { GGStrings.Appearance.ChatFont.info }),
+            searchKeywords: { [GGStrings.Appearance.ChatFont.keywords] }
+        ), linkIn: .main(of: tab), order: 150, subtitle: { GGStrings.Appearance.ChatFont.subtitle }, icon: .bundle("Chat/Context Menu/FormatText"), label: { _ in
+            return GGChatTextFonts.selectedDisplayName
         })
 
         // Bubbles.
@@ -205,6 +223,7 @@ enum GGAppearanceMenu {
     /// families preinstalled in iOS. Nothing bundled, no font licenses to list.
     private static func registerFont() {
         GGAppearanceMenu.registerCustomFonts()
+        GGAppearanceMenu.registerBundledFonts()
 
         GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: GGAppearanceMenu.fontSystem, screen: .tab(GGAppearanceMenu.fontTab), order: 300, header: { GGStrings.Appearance.Font.systemHeader }, footer: { _ in
             if GGFonts.needsRestart {
@@ -224,6 +243,66 @@ enum GGAppearanceMenu {
             GGAppearanceMenu.registerFontRow(family: family, section: GGAppearanceMenu.fontFamilies, order: order)
             order += 100
         }
+    }
+
+    private static func registerBundledFonts() {
+        GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: GGAppearanceMenu.fontBundled, screen: .tab(GGAppearanceMenu.fontTab), order: 250, header: { GGStrings.Appearance.Font.bundledHeader }, footer: { _ in
+            if GGFonts.needsRestart && GGFonts.selectedBundledFont != nil {
+                return GGStrings.Core.requiresRestartFooter
+            }
+            return GGStrings.Appearance.Font.bundledFooter
+        }))
+        var order = 100
+        for bundledFont in GGMediaTokFonts.all {
+            GGMenuRegistry.register(GGMenuRow(id: "appearance.font.bundled.\(bundledFont.slug)", section: GGAppearanceMenu.fontBundled, order: order, title: { bundledFont.displayName }, kind: .custom({ context in
+                return GGAppearanceMenu.bundledFontItem(bundledFont, context: context)
+            }), searchKeywords: { [bundledFont.displayName, bundledFont.category] }))
+            order += 10
+        }
+    }
+
+    private static func bundledFontItem(_ bundledFont: GGBundledFont, context: GGMenuContext) -> ListViewItem {
+        let presentationData = context.itemListPresentationData
+        let sample = GGFonts.sampleImage(bundledFont: bundledFont, color: presentationData.theme.list.itemPrimaryTextColor)
+        return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, icon: sample, iconSize: sample?.size, title: bundledFont.displayName, subtitle: bundledFont.category, style: .right, checked: GGFonts.selectedBundledFont == bundledFont, zeroSeparatorInsets: false, sectionId: context.sectionId, action: {
+            GGMenuBinding.global(GGAppearanceSettings.fontFamily).set(GGMediaTokFonts.settingValue(bundledFont), in: context)
+        })
+    }
+
+    private static func registerChatFont() {
+        GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: GGAppearanceMenu.chatFontDisable, screen: .tab(GGAppearanceMenu.chatFontTab), order: 100, footer: { _ in GGStrings.Appearance.ChatFont.footer }))
+        GGMenuRegistry.register(GGMenuRow(id: "appearance.chatFont.off", section: GGAppearanceMenu.chatFontDisable, order: 100, title: { GGStrings.Appearance.ChatFont.disableTitle }, kind: .custom({ context in
+            let presentationData = context.itemListPresentationData
+            return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, title: GGStrings.Appearance.ChatFont.disableTitle, style: .right, checked: GGChatTextFonts.selectedStyle == nil, zeroSeparatorInsets: false, sectionId: context.sectionId, action: {
+                GGMenuBinding.global(GGAppearanceSettings.chatTextFont).set("", in: context)
+            })
+        })))
+
+        GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: GGAppearanceMenu.chatFontCyrillic, screen: .tab(GGAppearanceMenu.chatFontTab), order: 200, header: { GGStrings.Appearance.ChatFont.cyrillicHeader }))
+        var order = 100
+        for style in GGChatTextFonts.cyrillicStyles {
+            GGAppearanceMenu.registerChatFontRow(style: style, section: GGAppearanceMenu.chatFontCyrillic, order: order)
+            order += 10
+        }
+
+        GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: GGAppearanceMenu.chatFontMath, screen: .tab(GGAppearanceMenu.chatFontTab), order: 300, header: { GGStrings.Appearance.ChatFont.mathHeader }))
+        order = 100
+        for style in GGChatTextFonts.mathStyles {
+            GGAppearanceMenu.registerChatFontRow(style: style, section: GGAppearanceMenu.chatFontMath, order: order)
+            order += 10
+        }
+    }
+
+    private static func registerChatFontRow(style: GGChatTextStyle, section: GGMenuSectionID, order: Int) {
+        GGMenuRegistry.register(GGMenuRow(id: "appearance.chatFont.\(style.id)", section: section, order: order, title: { style.name }, kind: .custom({ context in
+            let presentationData = context.itemListPresentationData
+            let isSelected = GGChatTextFonts.selectedStyle == style
+            let preview = GGChatTextFonts.preview(for: style)
+            return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, title: "\(style.name)  (.f \(style.id))", subtitle: preview, style: .right, checked: isSelected, zeroSeparatorInsets: false, sectionId: context.sectionId, action: {
+                let nextValue = isSelected ? "" : style.id
+                GGMenuBinding.global(GGAppearanceSettings.chatTextFont).set(nextValue, in: context)
+            })
+        }), searchKeywords: { [style.name, style.id] }))
     }
 
     private static func registerFontRow(family: GGFontFamily, section: GGMenuSectionID, order: Int) {
@@ -255,10 +334,10 @@ enum GGAppearanceMenu {
                 return GGAppearanceMenu.customFontItem(customFont, context: context)
             }), isVisible: { _ in font() != nil }))
         }
-        GGMenuRegistry.register(GGMenuRow(id: "appearance.font.add", section: GGAppearanceMenu.fontCustom, order: 500, title: { GGStrings.Appearance.Font.add }, kind: .action({ context in
+        GGMenuRegistry.register(GGMenuRow(id: "appearance.font.add", section: GGAppearanceMenu.fontCustom, order: 2000, title: { GGStrings.Appearance.Font.add }, kind: .action({ context in
             GGPickers.pickFont(context: context)
         }), searchKeywords: { [GGStrings.Appearance.Font.keywords] }))
-        GGMenuRegistry.register(GGMenuRow(id: "appearance.font.remove", section: GGAppearanceMenu.fontCustom, order: 600, title: { GGStrings.Appearance.Font.remove }, kind: .action({ context in
+        GGMenuRegistry.register(GGMenuRow(id: "appearance.font.remove", section: GGAppearanceMenu.fontCustom, order: 2100, title: { GGStrings.Appearance.Font.remove }, kind: .action({ context in
             GGAppearanceMenu.presentRemoveFont(context: context)
         }), isVisible: { _ in !GGCustomFonts.fonts.isEmpty }, isDestructive: true))
     }
@@ -285,7 +364,7 @@ enum GGAppearanceMenu {
 
     private static func fontItem(family: GGFontFamily, context: GGMenuContext) -> ListViewItem {
         let presentationData = context.itemListPresentationData
-        let isSelected = GGFonts.selectedCustomFont == nil && GGFonts.selectedFamily == family
+        let isSelected = GGFonts.selectedCustomFont == nil && GGFonts.selectedBundledFont == nil && GGFonts.selectedFamily == family
         let sample = GGFonts.sampleImage(family: family, color: presentationData.theme.list.itemPrimaryTextColor)
         return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, icon: sample, iconSize: sample?.size, title: GGFonts.displayName(family), subtitle: GGFonts.detail(family), style: .right, checked: isSelected, zeroSeparatorInsets: false, sectionId: context.sectionId, action: {
             GGMenuBinding.global(GGAppearanceSettings.fontFamily).set(family.rawValue, in: context)

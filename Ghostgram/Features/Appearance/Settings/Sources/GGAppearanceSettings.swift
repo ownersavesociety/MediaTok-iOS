@@ -17,6 +17,8 @@ public enum GGAppearanceSettings {
     /// live in the app's container (Application Support/ghostgram/appearance/userFonts).
     /// Not exported: the files stay on this device.
     public static let customFonts = GGSetting<[String]>("appearance.font.custom", default: [], flags: [.noExport])
+    /// Outgoing stylish chat text font ID (Unicode / Cyrillic styles visible to everyone in Telegram); "" = off.
+    public static let chatTextFont = GGSetting<String>("appearance.font.chatTextStyle", default: "")
 
     // MARK: Bubbles
 
@@ -126,6 +128,7 @@ public enum GGAppearanceSettings {
     public static func declare() {
         let _ = GGAppearanceSettings.fontFamily
         let _ = GGAppearanceSettings.customFonts
+        let _ = GGAppearanceSettings.chatTextFont
         let _ = GGAppearanceSettings.bubbleEditor
         let _ = GGAppearanceSettings.bubbleIncomingRadius
         let _ = GGAppearanceSettings.bubbleOutgoingRadius

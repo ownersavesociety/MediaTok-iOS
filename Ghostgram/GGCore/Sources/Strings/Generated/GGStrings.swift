@@ -786,6 +786,53 @@ public enum GGStrings {
             }
         }
 
+        public enum ChatFont {
+            /// Cyrillic + Latin (21 styles)
+            public static var cyrillicHeader: Swift.String {
+                return GGLocalization.shared.string("appearance.chatFont.cyrillicHeader")
+            }
+
+            /// Plain text (off)
+            public static var disableTitle: Swift.String {
+                return GGLocalization.shared.string("appearance.chatFont.disableTitle")
+            }
+
+            /// Links, @mentions, #hashtags, /commands, and custom emoji are preserved intact.
+            public static var footer: Swift.String {
+                return GGLocalization.shared.string("appearance.chatFont.footer")
+            }
+
+            /// Automatically styles outgoing messages so everyone in Telegram sees them. One-off command in chat: .f cyber Hello!
+            public static var info: Swift.String {
+                return GGLocalization.shared.string("appearance.chatFont.info")
+            }
+
+            /// chat text font style unicode cyber smallcaps gothic fancy
+            public static var keywords: Swift.String {
+                return GGLocalization.shared.string("appearance.chatFont.keywords")
+            }
+
+            /// Latin + Digits Unicode (11 styles)
+            public static var mathHeader: Swift.String {
+                return GGLocalization.shared.string("appearance.chatFont.mathHeader")
+            }
+
+            /// Off
+            public static var off: Swift.String {
+                return GGLocalization.shared.string("appearance.chatFont.off")
+            }
+
+            /// 32 Unicode text styles sent directly to chats
+            public static var subtitle: Swift.String {
+                return GGLocalization.shared.string("appearance.chatFont.subtitle")
+            }
+
+            /// Message Text Font (Visible to All)
+            public static var title: Swift.String {
+                return GGLocalization.shared.string("appearance.chatFont.title")
+            }
+        }
+
         public enum Checkmarks {
             /// Checkmarks
             public static var header: Swift.String {
@@ -908,6 +955,16 @@ public enum GGStrings {
                 return GGLocalization.shared.format("appearance.font.added", [("name", name)])
             }
 
+            /// 48 built-in offline fonts with full Cyrillic and Latin support. Applied after restarting MediaTok.
+            public static var bundledFooter: Swift.String {
+                return GGLocalization.shared.string("appearance.font.bundledFooter")
+            }
+
+            /// MediaTok Fonts (48, Cyrillic + Latin)
+            public static var bundledHeader: Swift.String {
+                return GGLocalization.shared.string("appearance.font.bundledHeader")
+            }
+
             /// A .ttf, .otf or .ttc file from Files. The font stays on this device and applies after a restart.
             public static var customFooter: Swift.String {
                 return GGLocalization.shared.string("appearance.font.customFooter")
@@ -978,7 +1035,7 @@ public enum GGStrings {
                 return GGLocalization.shared.string("appearance.font.serif")
             }
 
-            /// System, an iOS font or your own
+            /// 48 built-in, system, iOS, or your own .ttf/.otf
             public static var subtitle: Swift.String {
                 return GGLocalization.shared.string("appearance.font.subtitle")
             }
@@ -1003,7 +1060,7 @@ public enum GGStrings {
                 return GGLocalization.shared.string("appearance.font.title")
             }
 
-            /// You can add up to 10 fonts — remove one first
+            /// You can add up to 50 fonts — remove one first
             public static var tooMany: Swift.String {
                 return GGLocalization.shared.string("appearance.font.tooMany")
             }

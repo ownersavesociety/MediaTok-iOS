@@ -115,6 +115,8 @@ enum GGFonts {
     private(set) static var launchFamily: GGFontFamily = .system
     /// The custom font in effect for this launch, if one is.
     private(set) static var launchCustomFont: GGCustomFont?
+    /// The bundled MediaTok font in effect for this launch, if one is.
+    private(set) static var launchBundledFont: GGBundledFont?
     private static var launchSource: GGFontSource?
     /// Installed family: the face for each (weight, italic), index `weight.rawValue * 2 + (italic ? 1 : 0)`.
     /// Written once in `register()`, before any font is requested; read-only afterwards.
@@ -133,8 +135,16 @@ enum GGFonts {
             GGFonts.resolvedFaces = faces
             GGFonts.launchCustomFont = customFont
             source = .installed(familyName)
+        } else if let bundledFont = GGMediaTokFonts.font(forSettingValue: value) {
+            guard let familyName = GGMediaTokFonts.registerForLaunch(bundledFont), let faces = GGFonts.resolveFaces(familyName: familyName) else {
+                GGLog.warning("appearance", "bundled font is unreadable, using the system font")
+                return
+            }
+            GGFonts.resolvedFaces = faces
+            GGFonts.launchBundledFont = bundledFont
+            source = .installed(familyName)
         } else {
-            if GGCustomFonts.isCustomValue(value) {
+            if GGCustomFonts.isCustomValue(value) || GGMediaTokFonts.isBundledValue(value) {
                 // A removed custom font (or one from an imported settings file): the system font.
                 GGAppearanceSettings.fontFamily.reset()
                 return
@@ -413,12 +423,19 @@ enum GGFonts {
         return GGCustomFonts.font(forSettingValue: GGAppearanceSettings.fontFamily.value)
     }
 
+    static var selectedBundledFont: GGBundledFont? {
+        return GGMediaTokFonts.font(forSettingValue: GGAppearanceSettings.fontFamily.value)
+    }
+
     /// The chosen font differs from the one this launch applied: the menu says «restart».
     static var needsRestart: Bool {
         if let selectedCustomFont = GGFonts.selectedCustomFont {
             return selectedCustomFont != GGFonts.launchCustomFont
         }
-        return GGFonts.launchCustomFont != nil || GGFonts.selectedFamily != GGFonts.launchFamily
+        if let selectedBundledFont = GGFonts.selectedBundledFont {
+            return selectedBundledFont != GGFonts.launchBundledFont
+        }
+        return GGFonts.launchCustomFont != nil || GGFonts.launchBundledFont != nil || GGFonts.selectedFamily != GGFonts.launchFamily
     }
 
     /// The name of the chosen font (the font row's value in «Сообщения»).
@@ -426,7 +443,25 @@ enum GGFonts {
         if let selectedCustomFont = GGFonts.selectedCustomFont {
             return selectedCustomFont.familyName
         }
+        if let selectedBundledFont = GGFonts.selectedBundledFont {
+            return selectedBundledFont.displayName
+        }
         return GGFonts.displayName(GGFonts.selectedFamily)
+    }
+
+    /// A sample of a bundled MediaTok font, drawn from its bundle file. Cached per (slug, color, text).
+    static func sampleImage(bundledFont: GGBundledFont, color: UIColor) -> UIImage? {
+        let sample = GGStrings.Appearance.Font.sample
+        let cacheKey = "bundled_\(bundledFont.slug)_\(color.argb)_\(sample)"
+        if let image = GGFonts.sampleCache[cacheKey] {
+            return image
+        }
+        guard let font = GGMediaTokFonts.menuFont(bundledFont, size: 20.0) else {
+            return nil
+        }
+        let image = GGFonts.renderSample(sample, font: font, color: color)
+        GGFonts.sampleCache[cacheKey] = image
+        return image
     }
 
     /// A sample of a custom font, drawn from its file. Cached per (file, color, text).

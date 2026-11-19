@@ -26,7 +26,7 @@ enum GGCustomFontImportResult {
 enum GGCustomFonts {
     /// `appearance.font.family` of a custom font: the prefix and the file name.
     static let valuePrefix = "custom:"
-    static let maximumCount = 10
+    static let maximumCount = 50
 
     private static let queue = Queue(name: "org.ghostgram.appearance.fonts", qos: .utility)
     private static let fileExtensions: Set<String> = ["ttf", "otf", "ttc"]
