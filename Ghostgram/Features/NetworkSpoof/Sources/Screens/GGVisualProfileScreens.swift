@@ -170,7 +170,7 @@ enum GGVisualProfileSupport {
             let targetPeer = peerInfo.chatPeer ?? peerInfo.peer
             let peerId = targetPeer.id
             let context = peerInfo.context
-            weak var weakController = peerInfo.controller
+            weak let weakController = peerInfo.controller
             return [
                 .action(ContextMenuActionItem(
                     text: GGStrings.NetworkSpoof.Visual.menuItem,
