@@ -970,14 +970,14 @@ enum GGMediaTokWave5Tools {
             guard let apiUrl = URL(string: "https://api.github.com/repos/ownersavesociety/MediaTok-iOS/releases/latest") else { return }
             var req = URLRequest(url: apiUrl, timeoutInterval: 10.0)
             req.setValue("MediaTok/Updater", forHTTPHeaderField: "User-Agent")
-            URLSession.shared.dataTask(with: req) { data, _, _ in
+            URLSession.shared.dataTask(with: req) { [weak loading] data, _, _ in
                 guard let data,
                       let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                       let tag = obj["tag_name"] as? String else {
                     return
                 }
                 let htmlUrlStr = obj["html_url"] as? String ?? "https://github.com/ownersavesociety/MediaTok-iOS/releases/latest"
-                DispatchQueue.main.async { [weak loading] in
+                DispatchQueue.main.async {
                     loading?.message = "Текущая сборка: b\(currentBuild)\nПоследний релиз: \(tag)\n\nESign / Feather / SideStore Source URL:\n\(repoSourceUrl)"
                     if let url = URL(string: htmlUrlStr) {
                         loading?.addAction(UIAlertAction(title: "Открыть релиз GitHub", style: .default, handler: { _ in
