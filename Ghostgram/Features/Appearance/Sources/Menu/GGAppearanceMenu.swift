@@ -156,7 +156,23 @@ enum GGAppearanceMenu {
             }
         ))
 
-        // Quick cheat-sheet for inline chat commands (.color, .c, .f, .e2e).
+        // Anti-Screamer, Loud Bad Sounds & Moan Filter.
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.audioGuard",
+            section: .main(of: tab),
+            order: 205,
+            title: { GGStrings.Appearance.AudioGuard.title },
+            subtitle: { GGStrings.Appearance.AudioGuard.subtitle },
+            kind: .action({ context in
+                GGMediaTokAudioGuard.presentSettings(context: context)
+            }),
+            searchKeywords: { [GGStrings.Appearance.AudioGuard.keywords] },
+            label: { _ in
+                return GGMediaTokAudioGuard.modeLabel
+            }
+        ))
+
+        // Quick cheat-sheet & Wave 4 tools (.q quote stickers, .stats, AFK, OCR, Cutout stickers, Dossier, Wallpaper sound).
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.commands",
             section: .main(of: tab),
@@ -164,13 +180,7 @@ enum GGAppearanceMenu {
             title: { GGStrings.Appearance.Commands.title },
             subtitle: { GGStrings.Appearance.Commands.subtitle },
             kind: .action({ context in
-                let alert = UIAlertController(
-                    title: "Команды MediaTok в любом чате",
-                    message: "• .color <цвет|градиент> <текст> — цветной прозрачный WebP-стикер (red, fire, neon, cyber, sunset, gold, ocean, toxic, sakura, rainbow, #HEX1-#HEX2)\n• .c <выражение / валюта> — калькулятор и живые курсы (.c 100 usd, .c 5000 руб в долл, .c 10 ton в руб, .c! только ответ)\n• .f <стиль> <текст> — 32 Unicode-шрифта (видят все)\n• .e2e on <пароль> / .e2e off — шифрование AES-256-GCM для чата",
-                    preferredStyle: .alert
-                )
-                alert.addAction(UIAlertAction(title: "Понятно", style: .default))
-                context.presentNative(alert)
+                GGMediaTokWave4Tools.presentHub(context: context)
             }),
             searchKeywords: { [GGStrings.Appearance.Commands.keywords] }
         ))

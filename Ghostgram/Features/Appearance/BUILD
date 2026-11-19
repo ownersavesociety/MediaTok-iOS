@@ -75,6 +75,7 @@ swift_library(
         "//submodules/LocalizedPeerData:LocalizedPeerData",
         "//submodules/ContextUI:ContextUI",
         "//submodules/WebPBinding:WebPBinding",
+        "//Ghostgram/Features/Voice:GGVoiceDSP",
     ],
     visibility = [
         "//visibility:public",

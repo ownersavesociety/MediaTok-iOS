@@ -22,6 +22,8 @@ public enum GGAppearanceModule {
         GGMediaTokCalculator.register()
         GGMediaTokE2E.register()
         GGMediaTokDiscordProfile.register()
+        GGMediaTokAudioGuard.register()
+        GGMediaTokWave4Tools.register()
         GGCustomFonts.registerProvider()
         GGAppearanceTheme.register()
         GGAmoledKeyboard.register()

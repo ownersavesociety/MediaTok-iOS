@@ -72,6 +72,13 @@ enum GGMediaTokCalculator {
             return false
         }
 
+        // Check unit conversion (km/mi, kg/lb, cm/in, C/F)
+        if let unitOut = GGMediaTokCalculator.tryConvertUnits(expr, resultOnly: resultOnly) {
+            request.replace(ChatTextInputState(inputText: NSAttributedString(string: unitOut)))
+            proceed()
+            return true
+        }
+
         // Check currency conversion first
         if let conv = GGMediaTokCalculator.parseCurrencyQuery(expr) {
             GGMediaTokCalculator.ensureFreshRates {
@@ -440,5 +447,34 @@ enum GGMediaTokCalculator {
 
     static func evaluateMath(_ expr: String) -> Double? {
         return MathParser(expr).parse()
+    }
+
+    private static func tryConvertUnits(_ raw: String, resultOnly: Bool) -> String? {
+        let tokens = raw.replacingOccurrences(of: ",", with: ".").split(whereSeparator: { $0.isWhitespace }).map { String($0) }
+        guard tokens.count >= 2, let val = Double(tokens[0]) else { return nil }
+        let unit = tokens[1].lowercased()
+        let out: (String, String)?
+        switch unit {
+        case "km", "км":
+            out = ("\(GGMediaTokCalculator.formatCurrencyNum(val)) км", "\(GGMediaTokCalculator.formatCurrencyNum(val * 0.621371)) миль")
+        case "mi", "миль", "мили":
+            out = ("\(GGMediaTokCalculator.formatCurrencyNum(val)) миль", "\(GGMediaTokCalculator.formatCurrencyNum(val * 1.60934)) км")
+        case "kg", "кг":
+            out = ("\(GGMediaTokCalculator.formatCurrencyNum(val)) кг", "\(GGMediaTokCalculator.formatCurrencyNum(val * 2.20462)) фунтов (lb)")
+        case "lb", "lbs", "фунт", "фунтов":
+            out = ("\(GGMediaTokCalculator.formatCurrencyNum(val)) lb", "\(GGMediaTokCalculator.formatCurrencyNum(val * 0.453592)) кг")
+        case "cm", "см":
+            out = ("\(GGMediaTokCalculator.formatCurrencyNum(val)) см", "\(GGMediaTokCalculator.formatCurrencyNum(val / 2.54)) дюймов (in)")
+        case "in", "inch", "дюйм", "дюймов":
+            out = ("\(GGMediaTokCalculator.formatCurrencyNum(val)) in", "\(GGMediaTokCalculator.formatCurrencyNum(val * 2.54)) см")
+        case "c", "°c", "цельсия":
+            out = ("\(GGMediaTokCalculator.formatCurrencyNum(val)) °C", "\(GGMediaTokCalculator.formatCurrencyNum(val * 9.0 / 5.0 + 32.0)) °F")
+        case "f", "°f", "фаренгейта":
+            out = ("\(GGMediaTokCalculator.formatCurrencyNum(val)) °F", "\(GGMediaTokCalculator.formatCurrencyNum((val - 32.0) * 5.0 / 9.0)) °C")
+        default:
+            out = nil
+        }
+        guard let (left, right) = out else { return nil }
+        return resultOnly ? right : "\(left) = \(right)"
     }
 }

@@ -627,6 +627,23 @@ public enum GGStrings {
     }
 
     public enum Appearance {
+        public enum AudioGuard {
+            /// filter audio screamer moan loud sound prank guard
+            public static var keywords: Swift.String {
+                return GGLocalization.shared.string("appearance.audioGuard.keywords")
+            }
+
+            /// Detector & suppressor (-12 dB) for loud screamers and moan pranks
+            public static var subtitle: Swift.String {
+                return GGLocalization.shared.string("appearance.audioGuard.subtitle")
+            }
+
+            /// Loud Sound & Moan Prank Filter
+            public static var title: Swift.String {
+                return GGLocalization.shared.string("appearance.audioGuard.title")
+            }
+        }
+
         public enum Background {
             /// Animated chat background
             public static var chatHeader: Swift.String {
@@ -871,17 +888,17 @@ public enum GGStrings {
         }
 
         public enum Commands {
-            /// commands color sticker calculator currency rate e2e font
+            /// commands color sticker calculator currency rate e2e quote stats afk ocr
             public static var keywords: Swift.String {
                 return GGLocalization.shared.string("appearance.commands.keywords")
             }
 
-            /// .color stickers, .c calc/currency, .f fonts, .e2e
+            /// .q quote stickers, .stats, AFK, OCR, cutout stickers, wallpaper sound
             public static var subtitle: Swift.String {
                 return GGLocalization.shared.string("appearance.commands.subtitle")
             }
 
-            /// MediaTok Chat Commands
+            /// MediaTok Tools & Commands
             public static var title: Swift.String {
                 return GGLocalization.shared.string("appearance.commands.title")
             }
@@ -910,7 +927,7 @@ public enum GGStrings {
                 return GGLocalization.shared.string("appearance.discordProfile.keywords")
             }
 
-            /// 4K banner, effects, avatar frames, Steam & Roblox (global)
+            /// 4K banner, full music track, effects, frames, Steam & Roblox
             public static var subtitle: Swift.String {
                 return GGLocalization.shared.string("appearance.discordProfile.subtitle")
             }

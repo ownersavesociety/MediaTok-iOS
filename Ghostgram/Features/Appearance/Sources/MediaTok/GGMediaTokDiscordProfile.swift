@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import ObjectiveC
+import AVFoundation
 import PhotosUI
 import ImageIO
 import UniformTypeIdentifiers
@@ -27,6 +28,9 @@ public struct GGDiscordProfileData: Codable, Equatable {
     public var customStatus: String
     public var steamInput: String
     public var robloxInput: String
+    public var musicFileName: String
+    public var musicUrl: String
+    public var musicTitle: String
     public var updatedAt: Int64
 
     private enum CodingKeys: String, CodingKey {
@@ -37,6 +41,9 @@ public struct GGDiscordProfileData: Codable, Equatable {
         case customStatus
         case steamInput
         case robloxInput
+        case musicFileName
+        case musicUrl
+        case musicTitle
         case updatedAt
     }
 
@@ -48,6 +55,9 @@ public struct GGDiscordProfileData: Codable, Equatable {
         customStatus: String = "",
         steamInput: String = "",
         robloxInput: String = "",
+        musicFileName: String = "",
+        musicUrl: String = "",
+        musicTitle: String = "",
         updatedAt: Int64 = 0
     ) {
         self.bannerFileName = bannerFileName
@@ -57,6 +67,9 @@ public struct GGDiscordProfileData: Codable, Equatable {
         self.customStatus = customStatus
         self.steamInput = steamInput
         self.robloxInput = robloxInput
+        self.musicFileName = musicFileName
+        self.musicUrl = musicUrl
+        self.musicTitle = musicTitle
         self.updatedAt = updatedAt
     }
 
@@ -69,6 +82,9 @@ public struct GGDiscordProfileData: Codable, Equatable {
         self.customStatus = try c.decodeIfPresent(String.self, forKey: .customStatus) ?? ""
         self.steamInput = try c.decodeIfPresent(String.self, forKey: .steamInput) ?? ""
         self.robloxInput = try c.decodeIfPresent(String.self, forKey: .robloxInput) ?? ""
+        self.musicFileName = try c.decodeIfPresent(String.self, forKey: .musicFileName) ?? ""
+        self.musicUrl = try c.decodeIfPresent(String.self, forKey: .musicUrl) ?? ""
+        self.musicTitle = try c.decodeIfPresent(String.self, forKey: .musicTitle) ?? ""
         self.updatedAt = try c.decodeIfPresent(Int64.self, forKey: .updatedAt) ?? 0
     }
 
@@ -80,6 +96,68 @@ public struct GGDiscordProfileData: Codable, Equatable {
             && self.customStatus.isEmpty
             && self.steamInput.isEmpty
             && self.robloxInput.isEmpty
+            && self.musicFileName.isEmpty
+            && self.musicUrl.isEmpty
+            && self.musicTitle.isEmpty
+    }
+}
+
+// MARK: - Full-Track Profile Music Player
+
+final class GGProfileMusicPlayer {
+    static let shared = GGProfileMusicPlayer()
+
+    private var player: AVPlayer?
+    private var playingPeerKey: String?
+    private var endObserver: NSObjectProtocol?
+
+    private init() {}
+
+    func isPlaying(peerId: PeerId) -> Bool {
+        let key = GGDiscordProfileStore.keyString(for: peerId)
+        return self.playingPeerKey == key && (self.player?.rate ?? 0.0) > 0.0
+    }
+
+    func stop() {
+        self.player?.pause()
+        self.player = nil
+        self.playingPeerKey = nil
+        if let obs = self.endObserver {
+            NotificationCenter.default.removeObserver(obs)
+            self.endObserver = nil
+        }
+    }
+
+    func toggle(peerId: PeerId, profile: GGDiscordProfileData, onStateChanged: (() -> Void)?) {
+        let key = GGDiscordProfileStore.keyString(for: peerId)
+        if self.isPlaying(peerId: peerId) {
+            self.stop()
+            onStateChanged?()
+            return
+        }
+        let targetURL: URL?
+        if let local = GGDiscordProfileStore.shared.musicFileURL(for: profile) {
+            targetURL = local
+        } else if profile.musicUrl.hasPrefix("https://"), let remote = URL(string: profile.musicUrl) {
+            targetURL = remote
+        } else {
+            targetURL = nil
+        }
+        guard let url = targetURL else { return }
+
+        self.stop()
+        let _ = try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
+        let _ = try? AVAudioSession.sharedInstance().setActive(true)
+        let item = AVPlayerItem(url: url)
+        let av = AVPlayer(playerItem: item)
+        self.player = av
+        self.playingPeerKey = key
+        self.endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+            self?.stop()
+            onStateChanged?()
+        }
+        av.play()
+        onStateChanged?()
     }
 }
 
@@ -125,10 +203,10 @@ final class GGDiscordProfileStore {
     }
 
     private func rootDir() -> URL {
-        if let env = GGCore.environment {
-            return URL(fileURLWithPath: env.ghostgramPath, isDirectory: true)
+        if let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            return base.appendingPathComponent("ghostgram/mediatok", isDirectory: true)
         }
-        return FileManager.default.temporaryDirectory.appendingPathComponent("ghostgram", isDirectory: true)
+        return FileManager.default.temporaryDirectory.appendingPathComponent("ghostgram/mediatok", isDirectory: true)
     }
 
     private func configURL() -> URL {
@@ -137,6 +215,10 @@ final class GGDiscordProfileStore {
 
     private func bannersDir() -> URL {
         return self.rootDir().appendingPathComponent("discord_banners", isDirectory: true)
+    }
+
+    private func musicDir() -> URL {
+        return self.rootDir().appendingPathComponent("discord_music", isDirectory: true)
     }
 
     private func ensureLoadedLocked() {
@@ -191,10 +273,30 @@ final class GGDiscordProfileStore {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
+    func musicFileURL(for profile: GGDiscordProfileData) -> URL? {
+        guard !profile.musicFileName.isEmpty else { return nil }
+        let url = self.musicDir().appendingPathComponent(profile.musicFileName)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     func saveBannerData(_ data: Data, for peerId: PeerId) -> String? {
         let dir = self.bannersDir()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let fileName = "banner_\(GGDiscordProfileStore.keyString(for: peerId))_\(Int64(Date().timeIntervalSince1970 * 1000.0)).jpg"
+        let url = dir.appendingPathComponent(fileName)
+        do {
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            return nil
+        }
+        return fileName
+    }
+
+    func saveMusicData(_ data: Data, ext: String, for peerId: PeerId) -> String? {
+        let dir = self.musicDir()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let cleanExt = ext.isEmpty ? "mp3" : ext.lowercased()
+        let fileName = "track_\(GGDiscordProfileStore.keyString(for: peerId))_\(Int64(Date().timeIntervalSince1970 * 1000.0)).\(cleanExt)"
         let url = dir.appendingPathComponent(fileName)
         do {
             try data.write(to: url, options: [.atomic])
@@ -212,6 +314,7 @@ final class GGDiscordProfileStore {
         self.lock.lock()
         self.ensureLoadedLocked()
         let oldBanner = self.entries[key]?.bannerFileName ?? ""
+        let oldMusic = self.entries[key]?.musicFileName ?? ""
         if updated.isEmpty {
             self.entries.removeValue(forKey: key)
         } else {
@@ -219,6 +322,9 @@ final class GGDiscordProfileStore {
         }
         if !oldBanner.isEmpty && oldBanner != updated.bannerFileName {
             try? FileManager.default.removeItem(at: self.bannersDir().appendingPathComponent(oldBanner))
+        }
+        if !oldMusic.isEmpty && oldMusic != updated.musicFileName {
+            try? FileManager.default.removeItem(at: self.musicDir().appendingPathComponent(oldMusic))
         }
         self.persistLocked()
         self.bumpRevisionLocked()
@@ -229,15 +335,15 @@ final class GGDiscordProfileStore {
         }
     }
 
-    // MARK: - Catbox + ntfy Global Sync
+    // MARK: - Catbox + ntfy Global Sync (4K Banner + Full Track Music)
 
-    private static func uploadBannerToCatbox(data: Data, fileName: String, completion: @escaping (String?) -> Void) {
+    private static func uploadToCatbox(data: Data, fileName: String, completion: @escaping (String?) -> Void) {
         guard let url = URL(string: "https://catbox.moe/user/api.php") else {
             completion(nil)
             return
         }
-        let boundary = "----MediaTokBanner\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
-        var req = URLRequest(url: url, timeoutInterval: 45.0)
+        let boundary = "----MediaTokSync\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        var req = URLRequest(url: url, timeoutInterval: 90.0)
         req.httpMethod = "POST"
         req.setValue("MediaTok/DiscordProfile", forHTTPHeaderField: "User-Agent")
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -246,7 +352,7 @@ final class GGDiscordProfileStore {
         if let d1 = "--\(boundary)\r\nContent-Disposition: form-data; name=\"reqtype\"\r\n\r\nfileupload\r\n".data(using: .utf8) {
             body.append(d1)
         }
-        if let d2 = "--\(boundary)\r\nContent-Disposition: form-data; name=\"fileToUpload\"; filename=\"\(fileName)\"\r\nContent-Type: image/jpeg\r\n\r\n".data(using: .utf8) {
+        if let d2 = "--\(boundary)\r\nContent-Disposition: form-data; name=\"fileToUpload\"; filename=\"\(fileName)\"\r\nContent-Type: application/octet-stream\r\n\r\n".data(using: .utf8) {
             body.append(d2)
         }
         body.append(data)
@@ -271,7 +377,31 @@ final class GGDiscordProfileStore {
     private func publishGlobalProfile(_ profile: GGDiscordProfileData, for peerId: PeerId) {
         guard let dialogId = GGDiscordProfileStore.globalDialogId(for: peerId) else { return }
 
-        let sendPayload: (String) -> Void = { resolvedBannerUrl in
+        let group = DispatchGroup()
+        var resolvedBannerUrl = profile.bannerUrl
+        var resolvedMusicUrl = profile.musicUrl
+
+        if !profile.bannerFileName.isEmpty && resolvedBannerUrl.isEmpty,
+           let localUrl = self.bannerFileURL(for: profile),
+           let bannerData = try? Data(contentsOf: localUrl), !bannerData.isEmpty {
+            group.enter()
+            GGDiscordProfileStore.uploadToCatbox(data: bannerData, fileName: profile.bannerFileName) { uploaded in
+                if let uploaded { resolvedBannerUrl = uploaded }
+                group.leave()
+            }
+        }
+
+        if !profile.musicFileName.isEmpty && resolvedMusicUrl.isEmpty,
+           let localMusic = self.musicFileURL(for: profile),
+           let musicData = try? Data(contentsOf: localMusic), !musicData.isEmpty {
+            group.enter()
+            GGDiscordProfileStore.uploadToCatbox(data: musicData, fileName: profile.musicFileName) { uploaded in
+                if let uploaded { resolvedMusicUrl = uploaded }
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .global(qos: .utility)) {
             guard let ntfyUrl = URL(string: "https://ntfy.sh/mtprof_v1_\(dialogId)") else { return }
             let payload: [String: Any] = [
                 "bannerUrl": resolvedBannerUrl,
@@ -280,6 +410,8 @@ final class GGDiscordProfileStore {
                 "customStatus": profile.customStatus,
                 "steamInput": profile.steamInput,
                 "robloxInput": profile.robloxInput,
+                "musicUrl": resolvedMusicUrl,
+                "musicTitle": profile.musicTitle,
                 "ts": profile.updatedAt
             ]
             guard let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
@@ -289,27 +421,16 @@ final class GGDiscordProfileStore {
             req.setValue("MediaTok/DiscordProfile", forHTTPHeaderField: "User-Agent")
             req.httpBody = jsonData
             URLSession.shared.dataTask(with: req) { _, _, _ in
-                if !resolvedBannerUrl.isEmpty && resolvedBannerUrl != profile.bannerUrl {
-                    let key = GGDiscordProfileStore.keyString(for: peerId)
-                    self.lock.lock()
-                    if var cur = self.entries[key], cur.updatedAt <= profile.updatedAt {
-                        cur.bannerUrl = resolvedBannerUrl
-                        self.entries[key] = cur
-                        self.persistLocked()
-                    }
-                    self.lock.unlock()
+                let key = GGDiscordProfileStore.keyString(for: peerId)
+                self.lock.lock()
+                if var cur = self.entries[key], cur.updatedAt <= profile.updatedAt {
+                    if !resolvedBannerUrl.isEmpty { cur.bannerUrl = resolvedBannerUrl }
+                    if !resolvedMusicUrl.isEmpty { cur.musicUrl = resolvedMusicUrl }
+                    self.entries[key] = cur
+                    self.persistLocked()
                 }
+                self.lock.unlock()
             }.resume()
-        }
-
-        if !profile.bannerFileName.isEmpty && profile.bannerUrl.isEmpty,
-           let localUrl = self.bannerFileURL(for: profile),
-           let bannerData = try? Data(contentsOf: localUrl), !bannerData.isEmpty {
-            GGDiscordProfileStore.uploadBannerToCatbox(data: bannerData, fileName: profile.bannerFileName) { uploadedUrl in
-                sendPayload(uploadedUrl ?? "")
-            }
-        } else {
-            sendPayload(profile.bannerUrl)
         }
     }
 
@@ -368,8 +489,45 @@ final class GGDiscordProfileStore {
             }
 
             let remoteBannerUrl = obj["bannerUrl"] as? String ?? ""
-            let applyRemote: (String) -> Void = { savedBannerFile in
-                var remote = GGDiscordProfileData(
+            let remoteMusicUrl = obj["musicUrl"] as? String ?? ""
+            let remoteMusicTitle = obj["musicTitle"] as? String ?? ""
+
+            let dlGroup = DispatchGroup()
+            var savedBannerFile = (remoteBannerUrl == existing?.bannerUrl) ? (existing?.bannerFileName ?? "") : ""
+            var savedMusicFile = (remoteMusicUrl == existing?.musicUrl) ? (existing?.musicFileName ?? "") : ""
+
+            if remoteBannerUrl.hasPrefix("https://"),
+               savedBannerFile.isEmpty,
+               let bUrl = URL(string: remoteBannerUrl) {
+                dlGroup.enter()
+                URLSession.shared.dataTask(with: bUrl) { bData, bResp, _ in
+                    if let bHttp = bResp as? HTTPURLResponse,
+                       (200 ... 299).contains(bHttp.statusCode),
+                       let bData, !bData.isEmpty,
+                       let saved = self.saveBannerData(bData, for: peerId) {
+                        savedBannerFile = saved
+                    }
+                    dlGroup.leave()
+                }.resume()
+            }
+
+            if remoteMusicUrl.hasPrefix("https://"),
+               savedMusicFile.isEmpty,
+               let mUrl = URL(string: remoteMusicUrl) {
+                dlGroup.enter()
+                URLSession.shared.dataTask(with: mUrl) { mData, mResp, _ in
+                    if let mHttp = mResp as? HTTPURLResponse,
+                       (200 ... 299).contains(mHttp.statusCode),
+                       let mData, !mData.isEmpty,
+                       let saved = self.saveMusicData(mData, ext: mUrl.pathExtension, for: peerId) {
+                        savedMusicFile = saved
+                    }
+                    dlGroup.leave()
+                }.resume()
+            }
+
+            dlGroup.notify(queue: .global(qos: .utility)) {
+                let remote = GGDiscordProfileData(
                     bannerFileName: savedBannerFile,
                     bannerUrl: remoteBannerUrl,
                     effectId: obj["effectId"] as? String ?? "none",
@@ -377,6 +535,9 @@ final class GGDiscordProfileStore {
                     customStatus: obj["customStatus"] as? String ?? "",
                     steamInput: obj["steamInput"] as? String ?? "",
                     robloxInput: obj["robloxInput"] as? String ?? "",
+                    musicFileName: savedMusicFile,
+                    musicUrl: remoteMusicUrl,
+                    musicTitle: remoteMusicTitle,
                     updatedAt: remoteTs
                 )
                 self.lock.lock()
@@ -384,9 +545,6 @@ final class GGDiscordProfileStore {
                 if let cur = self.entries[key], remoteTs <= cur.updatedAt {
                     self.lock.unlock()
                     return
-                }
-                if remote.bannerFileName.isEmpty && remote.bannerUrl == existing?.bannerUrl {
-                    remote.bannerFileName = existing?.bannerFileName ?? ""
                 }
                 if remote.isEmpty {
                     self.entries.removeValue(forKey: key)
@@ -399,23 +557,6 @@ final class GGDiscordProfileStore {
                 if let onUpdated {
                     DispatchQueue.main.async { onUpdated() }
                 }
-            }
-
-            if remoteBannerUrl.hasPrefix("https://"),
-               remoteBannerUrl != existing?.bannerUrl,
-               let bUrl = URL(string: remoteBannerUrl) {
-                URLSession.shared.dataTask(with: bUrl) { bData, bResp, _ in
-                    if let bHttp = bResp as? HTTPURLResponse,
-                       (200 ... 299).contains(bHttp.statusCode),
-                       let bData, !bData.isEmpty,
-                       let saved = self.saveBannerData(bData, for: peerId) {
-                        applyRemote(saved)
-                    } else {
-                        applyRemote("")
-                    }
-                }.resume()
-            } else {
-                applyRemote(existing?.bannerFileName ?? "")
             }
         }.resume()
     }
@@ -439,8 +580,6 @@ private final class GGConnectionResolvers {
     private var inFlight: Set<String> = []
 
     private init() {}
-
-    // MARK: Steam
 
     static func normalizeSteam(_ raw: String) -> (profileUrl: URL, xmlUrl: URL, cleanLabel: String)? {
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -562,13 +701,10 @@ private final class GGConnectionResolvers {
         return raw.isEmpty ? nil : raw
     }
 
-    // MARK: Roblox
-
     static func parseRobloxInput(_ raw: String) -> (userId: Int64?, username: String?, fallbackUrl: URL)? {
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { return nil }
         if s.hasPrefix("@") { s.removeFirst() }
-        // URL like https://www.roblox.com/users/12345/profile
         if let range = s.range(of: "roblox.com/users/", options: .caseInsensitive) {
             let tail = s[range.upperBound...]
             let digits = tail.prefix(while: { $0.isNumber })
@@ -710,7 +846,7 @@ private final class GGDiscordEffectView: UIView {
     private var emitter: CAEmitterLayer?
     private var neonGradient: CAGradientLayer?
     private var boltLayer: CAShapeLayer?
-    private var boltTimer: Timer?
+    private var boltTimer: Foundation.Timer?
     private var matrixLabels: [UILabel] = []
 
     override init(frame: CGRect) {
@@ -844,7 +980,7 @@ private final class GGDiscordEffectView: UIView {
         self.layer.addSublayer(shape)
         self.boltLayer = shape
 
-        self.boltTimer = Timer.scheduledTimer(withTimeInterval: 1.7, repeats: true) { [weak self] _ in
+        self.boltTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 1.7, repeats: true) { [weak self] _ in
             self?.flashBolt()
         }
     }
@@ -1166,6 +1302,27 @@ enum GGMediaTokDiscordProfile {
         var rows: [GGPeerInfoRow] = []
         let context = info.context
 
+        // Full Music Track on Profile
+        if !profile.musicFileName.isEmpty || !profile.musicUrl.isEmpty {
+            let isPlaying = GGProfileMusicPlayer.shared.isPlaying(peerId: peerId)
+            let titleText = profile.musicTitle.isEmpty ? "Трек профиля (нажмите для воспроизведения)" : profile.musicTitle
+            let badgeText = isPlaying ? "⏸ Пауза" : "▶️ Слушать (Фулл)"
+            rows.append(GGPeerInfoRow(
+                id: "mediatok.discord.music",
+                label: "🎵 Музыка профиля",
+                text: titleText,
+                rightLabel: badgeText,
+                action: {
+                    GGProfileMusicPlayer.shared.toggle(peerId: peerId, profile: profile) {
+                        controller?.requestLayout(transition: .immediate)
+                    }
+                },
+                longTapAction: {
+                    GGMediaTokDiscordProfile.copyAndToast(titleText, context: context, controller: controller)
+                }
+            ))
+        }
+
         if !profile.customStatus.isEmpty {
             let status = profile.customStatus
             rows.append(GGPeerInfoRow(
@@ -1222,7 +1379,7 @@ enum GGMediaTokDiscordProfile {
         let peerId = info.peer.id
         let isOwn = peerId == info.context.account.peerId
         weak let controller = info.controller
-        let title = isOwn ? "Discord-профиль / Steam / Roblox" : "Оформление профиля MediaTok"
+        let title = isOwn ? "Discord-профиль / Музыка / Steam" : "Оформление профиля MediaTok"
         return [.action(ContextMenuActionItem(text: title, icon: { theme in
             return UIImage(systemName: "sparkles")?.withTintColor(theme.contextMenu.primaryColor, renderingMode: .alwaysOriginal)
         }, action: { contextController, _ in
@@ -1273,18 +1430,22 @@ enum GGMediaTokDiscordProfile {
 
 // MARK: - Native UIKit Discord Profile Studio Editor
 
-private final class GGDiscordProfileEditorViewController: UIViewController, PHPickerViewControllerDelegate {
+private final class GGDiscordProfileEditorViewController: UIViewController, PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
     private let peerId: PeerId
     private let isOwn: Bool
     private let onDone: (() -> Void)?
 
     private var draft: GGDiscordProfileData
     private var pendingBannerData: Data?
+    private var pendingMusicData: Data?
+    private var pendingMusicExt: String = "mp3"
 
     private let bannerPreview = UIImageView()
     private let effectButton = UIButton(type: .system)
     private let frameButton = UIButton(type: .system)
     private let statusField = UITextField()
+    private let musicTitleField = UITextField()
+    private let musicFileStatusLabel = UILabel()
     private let steamField = UITextField()
     private let robloxField = UITextField()
 
@@ -1337,7 +1498,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         infoLabel.font = UIFont.systemFont(ofSize: 13.0)
         infoLabel.textColor = .secondaryLabel
         infoLabel.text = self.isOwn
-            ? "Ваш 4K-баннер, анимированный эффект, рамка аватарки, статус, Steam и Roblox автоматически синхронизируются для всех пользователей MediaTok!"
+            ? "Ваш 4K-баннер, эффект, рамка, ФУЛЛ-ТРЕК музыки, статус, Steam и Roblox автоматически синхронизируются для всех пользователей MediaTok!"
             : "Локальная настройка оформления для этого профиля (или нажмите «Обновить из облака» для загрузки профиля MediaTok)."
         stack.addArrangedSubview(infoLabel)
 
@@ -1379,6 +1540,27 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         self.frameButton.heightAnchor.constraint(equalToConstant: 44.0).isActive = true
         self.frameButton.addTarget(self, action: #selector(self.pickFrameTapped), for: .touchUpInside)
         stack.addArrangedSubview(self.frameButton)
+
+        // Full Track Music on Profile
+        stack.addArrangedSubview(self.makeSectionLabel("🎵 Музыкальный трек на профиле (ФУЛЛ ТРЕК без обрезки)"))
+        self.configureField(self.musicTitleField, placeholder: "Название трека (напр. Miyagi — Captain)", text: self.draft.musicTitle)
+        stack.addArrangedSubview(self.musicTitleField)
+
+        self.musicFileStatusLabel.font = UIFont.systemFont(ofSize: 12.0)
+        self.musicFileStatusLabel.textColor = .secondaryLabel
+        self.musicFileStatusLabel.numberOfLines = 1
+        stack.addArrangedSubview(self.musicFileStatusLabel)
+
+        let musicBtns = UIStackView()
+        musicBtns.axis = .horizontal
+        musicBtns.spacing = 8.0
+        musicBtns.distribution = .fillEqually
+        let pickMusicBtn = self.makeActionButton(title: "Выбрать аудио (.mp3/.m4a)", action: #selector(self.pickMusicTapped))
+        let clearMusicBtn = self.makeActionButton(title: "Убрать трек", action: #selector(self.clearMusicTapped))
+        clearMusicBtn.setTitleColor(.systemRed, for: .normal)
+        musicBtns.addArrangedSubview(pickMusicBtn)
+        musicBtns.addArrangedSubview(clearMusicBtn)
+        stack.addArrangedSubview(musicBtns)
 
         // Custom Status
         stack.addArrangedSubview(self.makeSectionLabel("Статус профиля (как в Discord)"))
@@ -1444,6 +1626,13 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         self.effectButton.setTitle("Эффект: \(effectTitle)  ▾", for: .normal)
         let frameTitle = GGDiscordProfileStore.avatarFrames.first(where: { $0.id == self.draft.avatarFrameId })?.title ?? "Выкл."
         self.frameButton.setTitle("Рамка: \(frameTitle)  ▾", for: .normal)
+        if let data = self.pendingMusicData {
+            self.musicFileStatusLabel.text = "Выбран фулл-трек (\(data.count / 1024) КБ) — готов к загрузке"
+        } else if !self.draft.musicFileName.isEmpty || !self.draft.musicUrl.isEmpty {
+            self.musicFileStatusLabel.text = "Фулл-трек прикреплён ✅"
+        } else {
+            self.musicFileStatusLabel.text = "Трек не выбран"
+        }
     }
 
     @objc private func pickBannerTapped() {
@@ -1468,6 +1657,39 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
                 strongSelf.bannerPreview.image = UIImage(data: jpegData)
             }
         }
+    }
+
+    @objc private func pickMusicTapped() {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.audio, .mp3, .mpeg4Audio], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = self
+        self.present(picker, animated: true)
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first,
+              let data = try? Data(contentsOf: url),
+              !data.isEmpty else {
+            return
+        }
+        self.pendingMusicData = data
+        self.pendingMusicExt = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
+        self.draft.musicUrl = ""
+        if (self.musicTitleField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            self.musicTitleField.text = url.deletingPathExtension().lastPathComponent
+        }
+        try? FileManager.default.removeItem(at: url)
+        self.refreshPickers()
+    }
+
+    @objc private func clearMusicTapped() {
+        self.pendingMusicData = nil
+        self.draft.musicFileName = ""
+        self.draft.musicUrl = ""
+        self.draft.musicTitle = ""
+        self.musicTitleField.text = ""
+        GGProfileMusicPlayer.shared.stop()
+        self.refreshPickers()
     }
 
     private static func encode4kBanner(from url: URL) -> Data? {
@@ -1530,6 +1752,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
             guard let strongSelf = self else { return }
             strongSelf.draft = GGDiscordProfileStore.shared.profile(for: strongSelf.peerId) ?? GGDiscordProfileData()
             strongSelf.statusField.text = strongSelf.draft.customStatus
+            strongSelf.musicTitleField.text = strongSelf.draft.musicTitle
             strongSelf.steamField.text = strongSelf.draft.steamInput
             strongSelf.robloxField.text = strongSelf.draft.robloxInput
             if let url = GGDiscordProfileStore.shared.bannerFileURL(for: strongSelf.draft) {
@@ -1542,11 +1765,14 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
 
     @objc private func resetAllTapped() {
         self.pendingBannerData = nil
+        self.pendingMusicData = nil
         self.draft = GGDiscordProfileData()
         self.bannerPreview.image = nil
         self.statusField.text = ""
+        self.musicTitleField.text = ""
         self.steamField.text = ""
         self.robloxField.text = ""
+        GGProfileMusicPlayer.shared.stop()
         self.refreshPickers()
     }
 
@@ -1557,6 +1783,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
     @objc private func saveTapped() {
         self.view.endEditing(true)
         self.draft.customStatus = self.statusField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.draft.musicTitle = self.musicTitleField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.draft.steamInput = self.steamField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.draft.robloxInput = self.robloxField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
@@ -1564,6 +1791,11 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
            let saved = GGDiscordProfileStore.shared.saveBannerData(data, for: self.peerId) {
             self.draft.bannerFileName = saved
             self.draft.bannerUrl = ""
+        }
+        if let mData = self.pendingMusicData,
+           let savedMusic = GGDiscordProfileStore.shared.saveMusicData(mData, ext: self.pendingMusicExt, for: self.peerId) {
+            self.draft.musicFileName = savedMusic
+            self.draft.musicUrl = ""
         }
 
         GGDiscordProfileStore.shared.setProfile(self.draft, for: self.peerId, publishGlobally: self.isOwn)
