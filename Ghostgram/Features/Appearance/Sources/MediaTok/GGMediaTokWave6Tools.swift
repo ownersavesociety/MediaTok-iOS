@@ -975,7 +975,7 @@ public enum GGMediaTokWave6Tools {
         return Set(array)
     }
 
-    public static func unlockAchievement(_ id: GGMediaTokCoreLogic.AchievementId) {
+    static func unlockAchievement(_ id: GGMediaTokCoreLogic.AchievementId) {
         var set = getUnlockedAchievements()
         if !set.contains(id.rawValue) {
             set.insert(id.rawValue)
@@ -1094,13 +1094,13 @@ private final class GGNoRedirectDelegate: NSObject, URLSessionTaskDelegate {
 
 // MARK: - Interactive Scratch Card View Controller (Real Finger-Erase Foil!)
 
-public final class GGScratchCardViewController: UIViewController {
+final class GGScratchCardViewController: UIViewController {
     private let payload: GGMediaTokCoreLogic.ScratchPayload
     private var scratchView: GGScratchMaskView?
     private let revealedLabel = UILabel()
     private var isRevealed = false
 
-    public init(payload: GGMediaTokCoreLogic.ScratchPayload) {
+    init(payload: GGMediaTokCoreLogic.ScratchPayload) {
         self.payload = payload
         super.init(nibName: nil, bundle: nil)
         self.modalPresentationStyle = .overFullScreen
@@ -1109,7 +1109,7 @@ public final class GGScratchCardViewController: UIViewController {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    public override func viewDidLoad() {
+    override func viewDidLoad() {
         super.viewDidLoad()
         self.view.backgroundColor = UIColor.black.withAlphaComponent(0.86)
 
@@ -1145,9 +1145,9 @@ public final class GGScratchCardViewController: UIViewController {
         self.revealedLabel.numberOfLines = 0
         foilArea.addSubview(self.revealedLabel)
 
-        let mask = GGScratchMaskView()
+        let mask = GGScratchMaskView(frame: .zero)
         mask.translatesAutoresizingMaskIntoConstraints = false
-        mask.onScratchedPercentage = { [weak self, weak mask] pct in
+        mask.onScratchedPercentage = { [weak self, weak mask] (pct: Double) in
             if pct > 0.35, let self = self, !self.isRevealed {
                 self.isRevealed = true
                 UIView.animate(withDuration: 0.35) {
