@@ -574,7 +574,17 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         try! PasscodeEnvironment.shared.configure(PasscodeConfiguration(appGroupIdentifier: appGroupName, processRole: .mainApp, biometricKeychainService: walletBiometricKeychainService), privateAccessGroup: {
             BuildConfig.keychainAccessGroup(baseAppBundleId: baseAppBundleId)
         })
-        let maybeAppGroupUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)
+        let maybeAppGroupUrl: URL? = {
+            if let groupUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName) {
+                return groupUrl
+            }
+            if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+                let fallback = appSupport.appendingPathComponent("mediatok-app-group", isDirectory: true)
+                try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+                return fallback
+            }
+            return nil
+        }()
         
         let buildConfig = BuildConfig(baseAppBundleId: baseAppBundleId)
         self.buildConfig = buildConfig
