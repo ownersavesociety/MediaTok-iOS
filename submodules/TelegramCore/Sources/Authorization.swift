@@ -90,7 +90,8 @@ func storeFutureLoginToken(accountManager: AccountManager<TelegramAccountManager
         #endif
         
         var cloudValue: [Data] = []
-        if let list = NSUbiquitousKeyValueStore.default.object(forKey: "T_SLTokens") as? [String] {
+        if FileManager.default.ubiquityIdentityToken != nil,
+           let list = NSUbiquitousKeyValueStore.default.object(forKey: "T_SLTokens") as? [String] {
             cloudValue = list.compactMap { string -> Data? in
                 guard let stringData = string.data(using: .utf8) else {
                     return nil
@@ -108,8 +109,10 @@ func storeFutureLoginToken(accountManager: AccountManager<TelegramAccountManager
             tokens.removeLast(tokens.count - 20)
         }
         
-        NSUbiquitousKeyValueStore.default.set(tokens.map { $0.base64EncodedString() }, forKey: "T_SLTokens")
-        NSUbiquitousKeyValueStore.default.synchronize()
+        if FileManager.default.ubiquityIdentityToken != nil {
+            NSUbiquitousKeyValueStore.default.set(tokens.map { $0.base64EncodedString() }, forKey: "T_SLTokens")
+            NSUbiquitousKeyValueStore.default.synchronize()
+        }
         
         transaction.setStoredLoginTokens(tokens)
     }).start()
@@ -143,7 +146,8 @@ func sendFirebaseAuthorizationCode(network: Network, phoneNumber: String, apiId:
 
 public func sendAuthorizationCode(accountManager: AccountManager<TelegramAccountManagerTypes>, account: UnauthorizedAccount, phoneNumber: String, apiId: Int32, apiHash: String, pushNotificationConfiguration: AuthorizationCodePushNotificationConfiguration?, firebaseSecretStream: Signal<[String: String], NoError>, syncContacts: Bool, disableAuthTokens: Bool = false, forcedPasswordSetupNotice: @escaping (Int32) -> (NoticeEntryKey, CodableEntry)?) -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> {
     var cloudValue: [Data] = []
-    if let list = NSUbiquitousKeyValueStore.default.object(forKey: "T_SLTokens") as? [String] {
+    if FileManager.default.ubiquityIdentityToken != nil,
+       let list = NSUbiquitousKeyValueStore.default.object(forKey: "T_SLTokens") as? [String] {
         cloudValue = list.compactMap { string -> Data? in
             guard let stringData = string.data(using: .utf8) else {
                 return nil
