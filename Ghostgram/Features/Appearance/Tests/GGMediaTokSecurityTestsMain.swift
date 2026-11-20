@@ -28,6 +28,9 @@ enum GGMediaTokSecurityTestsMain {
         Self.run("WatermarkFormatter", Self.testWatermarkFormatter)
         Self.run("BottomBarPresets", Self.testBottomBarPresets)
         Self.run("MinesweeperCoreEngine", Self.testMinesweeperCoreEngine)
+        Self.run("AntiPhishingAndHomographDetector", Self.testAntiPhishingAndHomographDetector)
+        Self.run("QrCommandParser", Self.testQrCommandParser)
+        Self.run("ChannelAdBlockerFilter", Self.testChannelAdBlockerFilter)
 
         print("MediaTok Security Tests Summary: \(Self.passed) passed, \(Self.failed) failed")
         if Self.failed > 0 {
@@ -403,5 +406,39 @@ enum GGMediaTokSecurityTestsMain {
         Self.check(game.grid[10].isFlagged, "Cell 10 flagged")
         game.toggleFlag(at: 10)
         Self.check(!game.grid[10].isFlagged, "Cell 10 unflagged")
+    }
+
+    private static func testAntiPhishingAndHomographDetector() {
+        // Homograph attack (Cyrillic 'e' in telegram)
+        let homo = GGMediaTokCoreLogic.inspectUrlForPhishing("https://t\u{0435}l\u{0435}gram.org/login")
+        Self.check(homo.isSuspicious, "Homograph spoofing detected")
+
+        // Suspicious TLD (.xyz)
+        let xyz = GGMediaTokCoreLogic.inspectUrlForPhishing("https://free-telegram-stars.xyz/claim")
+        Self.check(xyz.isSuspicious, "Suspicious .xyz TLD detected")
+
+        // Telegram spoof name (te1egram)
+        let sp = GGMediaTokCoreLogic.inspectUrlForPhishing("https://te1egram-gift.com")
+        Self.check(sp.isSuspicious, "Telegram spoofing detected")
+
+        // Legitimate domain
+        let ok = GGMediaTokCoreLogic.inspectUrlForPhishing("https://telegram.org")
+        Self.check(!ok.isSuspicious, "Legitimate domain is not marked suspicious")
+    }
+
+    private static func testQrCommandParser() {
+        Self.check(GGMediaTokCoreLogic.parseQrCommand(".qr https://github.com") == "https://github.com", ".qr link parsed")
+        Self.check(GGMediaTokCoreLogic.parseQrCommand(".qr ") == nil, "empty .qr returns nil")
+    }
+
+    private static func testChannelAdBlockerFilter() {
+        let ad1 = "Купить курсы со скидкой 50%! erid: 2Vtzqw73b"
+        Self.check(GGMediaTokCoreLogic.isChannelAdPost(ad1), "Post with erid is identified as ad")
+
+        let ad2 = "Свежие новости мира IT. #реклама"
+        Self.check(GGMediaTokCoreLogic.isChannelAdPost(ad2), "Post with #реклама is identified as ad")
+
+        let normal = "Вышло обновление клиента MediaTok iOS Ghost Edition 13.1.1!"
+        Self.check(!GGMediaTokCoreLogic.isChannelAdPost(normal), "Normal post is not identified as ad")
     }
 }

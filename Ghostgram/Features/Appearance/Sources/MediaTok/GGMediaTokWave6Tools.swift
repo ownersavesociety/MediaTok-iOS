@@ -25,6 +25,8 @@ public enum GGMediaTokWave6Tools {
     private static let callConfirmKey = "mediatok.guard.callConfirm.v1"
     private static let watermarkEnabledKey = "mediatok.watermark.enabled.v1"
     private static let watermarkTagKey = "mediatok.watermark.tag.v1"
+    private static let adBlockKey = "mediatok.adblock.enabled.v1"
+    private static let panicGestureKey = "mediatok.security.panic_gesture.v1"
     private static let unlockedAchievementsKey = "mediatok.achievements.unlocked.v1"
     private static let lastNightOwlCheckKey = "mediatok.achievements.night_owl_check"
 
@@ -46,6 +48,19 @@ public enum GGMediaTokWave6Tools {
     public static var customWatermarkTag: String {
         get { return UserDefaults.standard.string(forKey: GGMediaTokWave6Tools.watermarkTagKey) ?? "MediaTok" }
         set { UserDefaults.standard.set(newValue, forKey: GGMediaTokWave6Tools.watermarkTagKey) }
+    }
+
+    public static var isAdBlockEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: GGMediaTokWave6Tools.adBlockKey) == nil { return true }
+            return UserDefaults.standard.bool(forKey: GGMediaTokWave6Tools.adBlockKey)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: GGMediaTokWave6Tools.adBlockKey) }
+    }
+
+    public static var isPanicGestureEnabled: Bool {
+        get { return UserDefaults.standard.bool(forKey: GGMediaTokWave6Tools.panicGestureKey) }
+        set { UserDefaults.standard.set(newValue, forKey: GGMediaTokWave6Tools.panicGestureKey) }
     }
 
     public static func register() {
@@ -96,6 +111,21 @@ public enum GGMediaTokWave6Tools {
                 }
             }
 
+            // .qr command (#65)
+            if let qrText = GGMediaTokCoreLogic.parseQrCommand(trimmed) {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    if let webpData = GGMediaTokWave6Tools.generateQrStickerWebP(text: qrText) {
+                        DispatchQueue.main.async {
+                            let tempUrl = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("qr_\(Int(Date().timeIntervalSince1970)).webp")
+                            try? webpData.write(to: tempUrl)
+                            context.sendMediaFile(tempUrl)
+                            GGMediaTokWave6Tools.unlockAchievement(.mediatokOg)
+                        }
+                    }
+                }
+                return nil
+            }
+
             // Achievement check: Night Owl (03:00 - 05:00)
             let hour = Calendar.current.component(.hour, from: Date())
             if hour >= 3 && hour < 5 {
@@ -136,9 +166,60 @@ public enum GGMediaTokWave6Tools {
                     let toast = UIAlertController(title: "💧 Водяной знак на фото", message: "Статус: \(state)\nТекст: \(GGMediaTokCoreLogic.formatWatermarkText(recipient: "получатель", appTag: GGMediaTokWave6Tools.customWatermarkTag))", preferredStyle: .alert)
                     toast.addAction(UIAlertAction(title: "OK", style: .default))
                     GGMediaTokWave6Tools.presentOnRoot(toast)
+                }),
+                GGSendMenuItem(id: "mediatok.qr_generator", title: "🔲 Создать QR-стикер (.qr)", icon: "qrcode", action: {
+                    let alert = UIAlertController(title: "🔲 Генератор QR-кода", message: "Введите текст или ссылку для создания QR-стикера:", preferredStyle: .alert)
+                    alert.addTextField { tf in
+                        tf.placeholder = "https://example.com"
+                    }
+                    alert.addAction(UIAlertAction(title: "Создать QR", style: .default, handler: { _ in
+                        guard let text = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return }
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            if let webpData = GGMediaTokWave6Tools.generateQrStickerWebP(text: text) {
+                                DispatchQueue.main.async {
+                                    let tempUrl = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("qr_\(Int(Date().timeIntervalSince1970)).webp")
+                                    try? webpData.write(to: tempUrl)
+                                    context.sendMediaFile(tempUrl)
+                                    GGMediaTokWave6Tools.unlockAchievement(.mediatokOg)
+                                }
+                            }
+                        }
+                    }))
+                    alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+                    GGMediaTokWave6Tools.presentOnRoot(alert)
                 })
             ]
         }, order: 80)
+
+        // 4. Message Decorations: Anti-Phishing (#45) & Channel Ad-Blocker (#188)
+        GGMessageDecorationHooks.decorations.register({ message, context in
+            var decor = GGMessageDecoration()
+            guard let text = message.text, !text.isEmpty else { return decor }
+
+            // Anti-phishing check
+            if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+                let matches = detector.matches(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count))
+                for match in matches {
+                    if let range = Range(match.range, in: text) {
+                        let link = String(text[range])
+                        let verdict = GGMediaTokCoreLogic.inspectUrlForPhishing(link)
+                        if verdict.isSuspicious {
+                            decor.statusPrefix = "⚠️[ФИШИНГ] "
+                            decor.footnote = GGMessageFootnote(text: "⚠️ \(verdict.reason ?? "Подозрительная ссылка")", entities: [], alpha: 0.85)
+                            return decor
+                        }
+                    }
+                }
+            }
+
+            // Channel Ad-Blocker check
+            if GGMediaTokWave6Tools.isAdBlockEnabled && GGMediaTokCoreLogic.isChannelAdPost(text) {
+                decor.statusPrefix = "📢[РЕКЛАМА] "
+                decor.alpha = 0.35
+            }
+
+            return decor
+        }, order: 48)
     }
 
     // MARK: - Achievements System
@@ -273,6 +354,49 @@ public enum GGMediaTokWave6Tools {
         }
 
         return WebP.convert(toWebP: img, quality: 90.0)
+    }
+
+    // MARK: - QR Code WebP Sticker Generator (#65)
+
+    public static func generateQrStickerWebP(text: String) -> Data? {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(Data(text.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let outputImage = filter.outputImage else { return nil }
+
+        let side: CGFloat = 512
+        let scaleX = (side - 96) / outputImage.extent.size.width
+        let scaleY = (side - 96) / outputImage.extent.size.height
+        let transformed = outputImage.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+
+        let ciContext = CIContext()
+        guard let cgQr = ciContext.createCGImage(transformed, from: transformed.extent) else { return nil }
+
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
+        let img = renderer.image { ctx in
+            let cg = ctx.cgContext
+            cg.setFillColor(red: 0.08, green: 0.09, blue: 0.13, alpha: 1.0)
+            let path = UIBezierPath(roundedRect: CGRect(x: 16, y: 16, width: side - 32, height: side - 32), cornerRadius: 36)
+            cg.addPath(path.cgPath)
+            cg.fillPath()
+
+            cg.setStrokeColor(red: 0.20, green: 0.85, blue: 1.0, alpha: 0.8)
+            cg.setLineWidth(3.0)
+            cg.addPath(path.cgPath)
+            cg.strokePath()
+
+            let qrRect = CGRect(x: 48, y: 48, width: side - 96, height: side - 96)
+            cg.draw(cgQr, in: qrRect)
+
+            let footer = "Scan QR · MediaTok iOS Ghost"
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 13, weight: .bold),
+                .foregroundColor: UIColor.white.withAlphaComponent(0.7)
+            ]
+            let fSize = (footer as NSString).size(withAttributes: attrs)
+            (footer as NSString).draw(at: CGPoint(x: side / 2 - fSize.width / 2, y: side - 40), withAttributes: attrs)
+        }
+        return WebP.convert(toWebP: img, quality: 92.0)
     }
 
     public static func presentOnRoot(_ vc: UIViewController) {

@@ -301,6 +301,22 @@ enum GGAppearanceMenu {
             label: { _ in GGMediaTokWave6Tools.isCallConfirmEnabled ? "ВКЛ" : "ВЫКЛ" }
         ))
 
+        // Wave 6: Channel Ad-Blocker (#188)
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.adBlock",
+            section: .main(of: tab),
+            order: 226,
+            title: { "🚫 Блокировщик рекламы в каналах (#188)" },
+            subtitle: { "Авто-заглушение и сворачивание рекламных постов (erid, #реклама, ООО)" },
+            kind: .action({ context in
+                GGMediaTokWave6Tools.isAdBlockEnabled.toggle()
+                let st = GGMediaTokWave6Tools.isAdBlockEnabled ? "ВКЛ" : "ВЫКЛ"
+                context.presentToast("Анти-реклама каналов: \(st)")
+            }),
+            searchKeywords: { ["реклама", "adblock", "erid", "спам", "каналы"] },
+            label: { _ in GGMediaTokWave6Tools.isAdBlockEnabled ? "ВКЛ" : "ВЫКЛ" }
+        ))
+
         // Bubbles.
         GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: GGAppearanceMenu.messagesBubbles, screen: .tab(tab), order: 300, header: { GGStrings.Appearance.Bubbles.header }, footer: { _ in GGStrings.Appearance.Bubbles.footer }))
         let editorOn: (GGMenuContext) -> Bool = { _ in GGAppearanceSettings.bubbleEditor.value }

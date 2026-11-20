@@ -1783,7 +1783,7 @@ enum GGMediaTokCoreLogic {
             if !hasStarted {
                 hasStarted = true
                 var candidates = Array(0..<64).filter { $0 != index }
-                var seed = UInt64(index + 37) * 6364136223846793005 + 1
+                var seed = (UInt64(index + 37) &* 6364136223846793005) &+ 1
                 for i in stride(from: candidates.count - 1, through: 1, by: -1) {
                     seed = seed &* 6364136223846793005 &+ 1
                     let j = Int(seed % UInt64(i + 1))
@@ -1859,4 +1859,75 @@ enum GGMediaTokCoreLogic {
             grid[index].isFlagged.toggle()
         }
     }
+
+    // MARK: - 20. Anti-Phishing & Homograph Detector (#45)
+
+    struct PhishingVerdict: Equatable {
+        let isSuspicious: Bool
+        let reason: String?
+    }
+
+    static func inspectUrlForPhishing(_ rawUrl: String) -> PhishingVerdict {
+        guard let url = URL(string: rawUrl), let host = url.host?.lowercased() else {
+            return PhishingVerdict(isSuspicious: false, reason: nil)
+        }
+
+        var hasLatin = false
+        var hasCyrillic = false
+        for ch in host {
+            if ("a"..."z").contains(ch) {
+                hasLatin = true
+            } else if ("а"..."я").contains(ch) || ch == "ё" {
+                hasCyrillic = true
+            }
+        }
+        if hasLatin && hasCyrillic {
+            return PhishingVerdict(isSuspicious: true, reason: "Обнаружена подмена букв (Cyrillic/Latin homograph) в домене \(host)")
+        }
+
+        let suspiciousTlds = [".xyz", ".top", ".tk", ".ml", ".ga", ".cf", ".gq", ".buzz", ".fit", ".rest", ".cam", ".click"]
+        for tld in suspiciousTlds {
+            if host.hasSuffix(tld) {
+                return PhishingVerdict(isSuspicious: true, reason: "Подозрительная доменная зона \(tld)")
+            }
+        }
+
+        let telegramSpoofs = ["te1egram", "telegraam", "te1egr", "t-me.", "tele-gram"]
+        for sp in telegramSpoofs {
+            if host.contains(sp) {
+                return PhishingVerdict(isSuspicious: true, reason: "Подозрение на поддельный домен Telegram")
+            }
+        }
+
+        return PhishingVerdict(isSuspicious: false, reason: nil)
+    }
+
+    // MARK: - 21. QR Code Command Parser (#65)
+
+    static func parseQrCommand(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix(".qr ") else { return nil }
+        let content = String(trimmed.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return content.isEmpty ? nil : String(content.prefix(500))
+    }
+
+    // MARK: - 22. Channel Ad-Blocker Filter (#188)
+
+    static func isChannelAdPost(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        if lower.contains("erid:") || lower.contains("erid=") || lower.contains("erid ") {
+            return true
+        }
+        if lower.contains("#реклама") || lower.contains("#ad ") || lower.contains("#промо") || lower.contains("#promo") {
+            return true
+        }
+        if lower.contains("реклама.") && (lower.contains("ооо ") || lower.contains("инн ") || lower.contains("токена")) {
+            return true
+        }
+        return false
+    }
+
+    // MARK: - 23. Voice Speed Presets (#3)
+
+    static let expandedVoiceSpeeds: [Float] = [1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0]
 }
