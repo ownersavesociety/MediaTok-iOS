@@ -581,7 +581,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                 return groupUrl
             }
             if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-                let fallback = appSupport.appendingPathComponent("mediatok-app-group-v2", isDirectory: true)
+                let fallback = appSupport.appendingPathComponent("mediatok-app-group-v3", isDirectory: true)
                 let telegramData = fallback.appendingPathComponent("telegram-data", isDirectory: true)
                 try? FileManager.default.createDirectory(at: telegramData, withIntermediateDirectories: true)
                 return fallback
@@ -591,7 +591,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         
         let buildConfig = BuildConfig(baseAppBundleId: baseAppBundleId)
         self.buildConfig = buildConfig
-        let signatureDict = BuildConfigExtra.signatureDict()
+        let _ = BuildConfigExtra.signatureDict()
         
         let apiId: Int32 = buildConfig.apiId
         let apiHash: String = buildConfig.apiHash
@@ -619,21 +619,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             voipVersions: PresentationCallManagerImpl.voipVersions(includeExperimental: true, includeReference: false).map { version, supportsVideo -> CallSessionManagerImplementationVersion in
                 CallSessionManagerImplementationVersion(version: version, supportsVideo: supportsVideo)
             },
-            appData: self.regularDeviceToken.get() |> map { token in
-                let tokenEnvironment: String
-                #if DEBUG
-                tokenEnvironment = "sandbox"
-                #else
-                tokenEnvironment = "production"
-                #endif
-                
-                let data = buildConfig.bundleData(withAppToken: token, tokenType: "apns", tokenEnvironment: tokenEnvironment, signatureDict: signatureDict)
-                if let data = data, let _ = String(data: data, encoding: .utf8) {
-                } else {
-                    Logger.shared.log("data", "can't deserialize")
-                }
-                return data
-            },
+            appData: .single(nil),
             externalRequestVerificationStream: self.firebaseRequestVerificationSecretStream.get(),
             externalRecaptchaRequestVerification: { method, siteKey in
                 return Signal<String?, NoError> { subscriber in
@@ -705,7 +691,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             },
             autolockDeadine: autolockDeadine,
             encryptionProvider: OpenSSLEncryptionProvider(),
-            deviceModelName: nil,
+            deviceModelName: "MediaTokX",
             useBetaFeatures: !buildConfig.isAppStoreBuild,
             isICloudEnabled: buildConfig.isICloudEnabled && FileManager.default.ubiquityIdentityToken != nil,
             // Only the main app passes a factory: extensions stay on MtProtoKit. Whether the Rust
