@@ -320,7 +320,9 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         let appGroupName = "group.\(baseAppBundleId)"
 
         let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
-        configuration.sharedContainerIdentifier = appGroupName
+        if FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName) != nil {
+            configuration.sharedContainerIdentifier = appGroupName
+        }
         configuration.isDiscretionary = false
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
         self.urlSessions.append(session)
@@ -579,8 +581,9 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                 return groupUrl
             }
             if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-                let fallback = appSupport.appendingPathComponent("mediatok-app-group", isDirectory: true)
-                try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+                let fallback = appSupport.appendingPathComponent("mediatok-app-group-v2", isDirectory: true)
+                let telegramData = fallback.appendingPathComponent("telegram-data", isDirectory: true)
+                try? FileManager.default.createDirectory(at: telegramData, withIntermediateDirectories: true)
                 return fallback
             }
             return nil
@@ -739,6 +742,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         } else {
             rootPath = rootPathForBasePath(appGroupUrl.path)
         }
+        let _ = try? FileManager.default.createDirectory(atPath: rootPath, withIntermediateDirectories: true, attributes: nil)
         if !isUITest {
             performAppGroupUpgrades(appGroupPath: appGroupUrl.path, rootPath: rootPath)
         }
@@ -1638,37 +1642,39 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         
         if #available(iOS 13.0, *) {
             let cleanupTaskId = "\(baseAppBundleId).cleanup"
-            
-            BGTaskScheduler.shared.register(forTaskWithIdentifier: cleanupTaskId, using: DispatchQueue.main) { task in
-                Logger.shared.log("App \(self.episodeId)", "Executing cleanup task")
-                
-                let disposable = self.runCacheReindexTasks(lowImpact: true, completion: {
-                    Logger.shared.log("App \(self.episodeId)", "Completed cleanup task")
+            let permittedBgIds = (Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String]) ?? []
+            if permittedBgIds.contains(cleanupTaskId) {
+                BGTaskScheduler.shared.register(forTaskWithIdentifier: cleanupTaskId, using: DispatchQueue.main) { task in
+                    Logger.shared.log("App \(self.episodeId)", "Executing cleanup task")
                     
-                    task.setTaskCompleted(success: true)
+                    let disposable = self.runCacheReindexTasks(lowImpact: true, completion: {
+                        Logger.shared.log("App \(self.episodeId)", "Completed cleanup task")
+                        
+                        task.setTaskCompleted(success: true)
+                    })
+                    
+                    task.expirationHandler = {
+                        disposable.dispose()
+                        task.setTaskCompleted(success: false)
+                    }
+                }
+                
+                BGTaskScheduler.shared.getPendingTaskRequests(completionHandler: { tasks in
+                    if tasks.contains(where: { $0.identifier == cleanupTaskId }) {
+                        Logger.shared.log("App \(self.episodeId)", "Already have a cleanup task pending")
+                        return
+                    }
+                    let request = BGProcessingTaskRequest(identifier: cleanupTaskId)
+                    request.requiresExternalPower = true
+                    request.requiresNetworkConnectivity = false
+                    
+                    do {
+                        try BGTaskScheduler.shared.submit(request)
+                    } catch let e {
+                        Logger.shared.log("App \(self.episodeId)", "Error submitting background task request: \(e)")
+                    }
                 })
-                
-                task.expirationHandler = {
-                    disposable.dispose()
-                    task.setTaskCompleted(success: false)
-                }
             }
-            
-            BGTaskScheduler.shared.getPendingTaskRequests(completionHandler: { tasks in
-                if tasks.contains(where: { $0.identifier == cleanupTaskId }) {
-                    Logger.shared.log("App \(self.episodeId)", "Already have a cleanup task pending")
-                    return
-                }
-                let request = BGProcessingTaskRequest(identifier: cleanupTaskId)
-                request.requiresExternalPower = true
-                request.requiresNetworkConnectivity = false
-                
-                do {
-                    try BGTaskScheduler.shared.submit(request)
-                } catch let e {
-                    Logger.shared.log("App \(self.episodeId)", "Error submitting background task request: \(e)")
-                }
-            })
         }
         
         let timestamp = Int(CFAbsoluteTimeGetCurrent())

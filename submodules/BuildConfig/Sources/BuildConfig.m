@@ -373,6 +373,7 @@ API_AVAILABLE(ios(10))
 
 + (DeviceSpecificEncryptionParameters * _Nonnull)deviceSpecificEncryptionParameters:(NSString * _Nonnull)rootPath baseAppBundleId:(NSString * _Nonnull)baseAppBundleId {
     CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
+    [[NSFileManager defaultManager] createDirectoryAtPath:rootPath withIntermediateDirectories:YES attributes:nil error:nil];
     
     NSString *filePath = [rootPath stringByAppendingPathComponent:@".tempkey"];
     //NSString *encryptedPath = [rootPath stringByAppendingPathComponent:@".tempkeyEncrypted"];

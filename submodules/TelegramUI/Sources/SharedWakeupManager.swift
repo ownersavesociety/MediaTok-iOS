@@ -534,6 +534,10 @@ public final class SharedWakeupManager {
         }
         
         let baseAppBundleId = Bundle.main.bundleIdentifier!
+        let permittedBgIds = (Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String]) ?? []
+        guard permittedBgIds.contains("\(baseAppBundleId).upload.*") else {
+            return
+        }
         let uploadTaskId = "\(baseAppBundleId).upload.message\(self.nextBackgroundProcessingTaskId)"
         self.nextBackgroundProcessingTaskId += 1
         self.backgroundProcessingTaskProgressByKey = [:]
@@ -710,6 +714,10 @@ public final class SharedWakeupManager {
         }
         
         let baseAppBundleId = Bundle.main.bundleIdentifier!
+        let permittedBgIds = (Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String]) ?? []
+        guard permittedBgIds.contains("\(baseAppBundleId).upload.*") else {
+            return
+        }
         let uploadTaskId = "\(baseAppBundleId).upload.story\(self.nextBackgroundStoryProcessingTaskId)"
         self.nextBackgroundStoryProcessingTaskId += 1
         self.backgroundStoryProcessingTaskProgressByKey = [:]
