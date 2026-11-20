@@ -1544,4 +1544,319 @@ enum GGMediaTokCoreLogic {
         }
         return diff == 0
     }
+
+    // MARK: - 14. Scratch Message Command Parser
+
+    struct ScratchPayload: Equatable {
+        let title: String
+        let secret: String
+        let seed: UInt64
+    }
+
+    static func parseScratchCommand(_ raw: String) -> ScratchPayload? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix(".scratch") else { return nil }
+        let rest = trimmed.dropFirst(".scratch".count).trimmingCharacters(in: .whitespacesAndNewlines)
+        if rest.isEmpty { return nil }
+
+        let title: String
+        let secret: String
+        if let barIdx = rest.firstIndex(of: "|") {
+            title = String(rest[..<barIdx]).trimmingCharacters(in: .whitespacesAndNewlines)
+            secret = String(rest[rest.index(after: barIdx)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            title = "Секретный билет 🎟️"
+            secret = rest
+        }
+        guard !secret.isEmpty else { return nil }
+
+        var h: UInt64 = 14695981039346656037
+        for b in secret.utf8 {
+            h ^= UInt64(b)
+            h &*= 1099511628211
+        }
+        return ScratchPayload(
+            title: String(title.prefix(40)),
+            secret: String(secret.prefix(500)),
+            seed: h
+        )
+    }
+
+    // MARK: - 15. Bidirectional Keyboard Layout Fixer (.fix / .ghbdtn)
+
+    private static let qwertyLower = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`"
+    private static let jcukenLower = "йцукенгшщзхъфывапролджэячсмитьбю.ё"
+    private static let qwertyUpper = "QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>?~"
+    private static let jcukenUpper = "ЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,Ё"
+
+    static func fixKeyboardLayout(_ text: String) -> String {
+        guard !text.isEmpty else { return "" }
+        var ruCount = 0
+        var enCount = 0
+        for ch in text {
+            if ("а"..."я").contains(ch) || ("А"..."Я").contains(ch) || ch == "ё" || ch == "Ё" {
+                ruCount += 1
+            } else if ("a"..."z").contains(ch) || ("A"..."Z").contains(ch) {
+                enCount += 1
+            }
+        }
+        let toRussian = enCount >= ruCount
+
+        var enToRu: [Character: Character] = [:]
+        var ruToEn: [Character: Character] = [:]
+
+        let ql = Array(qwertyLower)
+        let jl = Array(jcukenLower)
+        for i in 0 ..< min(ql.count, jl.count) {
+            enToRu[ql[i]] = jl[i]
+            ruToEn[jl[i]] = ql[i]
+        }
+        let qu = Array(qwertyUpper)
+        let ju = Array(jcukenUpper)
+        for i in 0 ..< min(qu.count, ju.count) {
+            enToRu[qu[i]] = ju[i]
+            ruToEn[ju[i]] = qu[i]
+        }
+
+        var result = ""
+        result.reserveCapacity(text.count)
+        for ch in text {
+            if toRussian {
+                result.append(enToRu[ch] ?? ch)
+            } else {
+                result.append(ruToEn[ch] ?? ch)
+            }
+        }
+        return result
+    }
+
+    static func parseFixCommand(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.lowercased().hasPrefix(".fix ") {
+            let body = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return body.isEmpty ? nil : fixKeyboardLayout(body)
+        } else if trimmed.lowercased().hasPrefix(".ghbdtn ") {
+            let body = String(trimmed.dropFirst(8)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return body.isEmpty ? nil : fixKeyboardLayout(body)
+        } else if trimmed.lowercased() == ".fix" || trimmed.lowercased() == ".ghbdtn" {
+            return ""
+        }
+        return nil
+    }
+
+    // MARK: - 16. MediaTok Achievements System
+
+    enum AchievementId: String, CaseIterable, Codable {
+        case nightOwl = "night_owl"
+        case stickerCollector = "sticker_collector"
+        case fontStylist = "font_stylist"
+        case e2eMaster = "e2e_master"
+        case audiophile = "audiophile"
+        case streak7d = "streak_7d"
+        case streak30d = "streak_30d"
+        case metaCleaner = "meta_cleaner"
+        case gamer = "gamer"
+        case liquidGlass = "liquid_glass"
+        case callGuard = "call_guard"
+        case mediatokOg = "mediatok_og"
+    }
+
+    struct AchievementDef: Equatable {
+        let id: AchievementId
+        let title: String
+        let subtitle: String
+        let icon: String
+        let rarity: String
+    }
+
+    static let allAchievements: [AchievementDef] = [
+        AchievementDef(id: .mediatokOg, title: "MediaTok OG", subtitle: "Первые шаги в Ghost Edition", icon: "👑", rarity: "Обычная"),
+        AchievementDef(id: .nightOwl, title: "Ночной призрак", subtitle: "Активность в чате с 03:00 до 05:00", icon: "🌙", rarity: "Редкая"),
+        AchievementDef(id: .stickerCollector, title: "Стикермагнат", subtitle: "Более 50 стикеров в /stickers", icon: "🗃️", rarity: "Эпическая"),
+        AchievementDef(id: .fontStylist, title: "Шрифтовой маньяк", subtitle: "Установлен собственный TTF/OTF шрифт", icon: "🎨", rarity: "Редкая"),
+        AchievementDef(id: .e2eMaster, title: "Шифропанк", subtitle: "Отправлено зашифрованное E2E сообщение", icon: "🔒", rarity: "Эпическая"),
+        AchievementDef(id: .audiophile, title: "Аудиофил", subtitle: "Подключен бесконечный плейлист профиля", icon: "🎧", rarity: "Редкая"),
+        AchievementDef(id: .streak7d, title: "Огненная серия", subtitle: "7 дней непрерывного общения", icon: "🔥", rarity: "Редкая"),
+        AchievementDef(id: .streak30d, title: "Пламенный титан", subtitle: "30 дней непрерывного общения", icon: "🟠", rarity: "Легендарная"),
+        AchievementDef(id: .metaCleaner, title: "Чистильщик", subtitle: "Отправлен файл с удалением EXIF/PDF-меты", icon: "🧹", rarity: "Обычная"),
+        AchievementDef(id: .gamer, title: "Ретро-геймер", subtitle: "Набрано 500+ очков в 2048, Змейке или Сапёре", icon: "🎮", rarity: "Редкая"),
+        AchievementDef(id: .liquidGlass, title: "Жидкое стекло", subtitle: "Активирован пресет Liquid Glass iOS 27", icon: "🧊", rarity: "Обычная"),
+        AchievementDef(id: .callGuard, title: "Анти-прозвон", subtitle: "Включена защита от случайных звонков", icon: "🛡️", rarity: "Обычная")
+    ]
+
+    static func evaluateAchievements(unlockedIds: Set<String>) -> (unlocked: [AchievementDef], locked: [AchievementDef], tier: String) {
+        var unlocked: [AchievementDef] = []
+        var locked: [AchievementDef] = []
+        for a in allAchievements {
+            if unlockedIds.contains(a.id.rawValue) {
+                unlocked.append(a)
+            } else {
+                locked.append(a)
+            }
+        }
+        let count = unlocked.count
+        let tier: String
+        switch count {
+        case 0...2: tier = "Новичок 🥉"
+        case 3...6: tier = "Энтузиаст 🥈"
+        case 7...10: tier = "Ветеран 🥇"
+        default: tier = "Легенда MediaTok 💎"
+        }
+        return (unlocked, locked, tier)
+    }
+
+    // MARK: - 17. Watermark Formatter
+
+    static func formatWatermarkText(recipient: String, date: Date = Date(), appTag: String = "MediaTok") -> String {
+        let cleanRecipient = recipient
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayRecip = cleanRecipient.isEmpty ? "Личное" : cleanRecipient
+        let cal = Calendar(identifier: .gregorian)
+        let comps = cal.dateComponents([.year, .month, .day], from: date)
+        let dateStr = String(format: "%02d.%02d.%04d", comps.day ?? 1, comps.month ?? 1, comps.year ?? 2026)
+        return "Для @\(displayRecip) · \(dateStr) · \(appTag)"
+    }
+
+    // MARK: - 18. Bottom Bar Presets
+
+    enum BottomTabPreset: String, CaseIterable {
+        case standard = "standard"
+        case minimal = "minimal"
+        case mediaHub = "media_hub"
+        case fullPower = "full_power"
+
+        var title: String {
+            switch self {
+            case .standard: return "Стандарт Telegram"
+            case .minimal: return "Минимал (Чаты + Настройки)"
+            case .mediaHub: return "Медиа-хаб (Чаты + TikTok + Настройки)"
+            case .fullPower: return "Максимум (Все вкладки)"
+            }
+        }
+
+        var hiddenTabs: [String] {
+            switch self {
+            case .standard: return []
+            case .minimal: return ["calls", "contacts"]
+            case .mediaHub: return ["calls", "contacts"]
+            case .fullPower: return []
+            }
+        }
+
+        var isWide: Bool {
+            switch self {
+            case .standard, .minimal: return false
+            case .mediaHub, .fullPower: return true
+            }
+        }
+    }
+
+    // MARK: - 19. Neon Minesweeper Core Engine
+
+    struct MinesweeperCell: Equatable {
+        var isMine: Bool
+        var isRevealed: Bool
+        var isFlagged: Bool
+        var adjacentMines: Int
+    }
+
+    struct MinesweeperGame: Equatable {
+        let rows: Int = 8
+        let cols: Int = 8
+        let totalMines: Int = 10
+        var grid: [MinesweeperCell]
+        var isGameOver: Bool
+        var isWon: Bool
+        var hasStarted: Bool
+
+        init() {
+            self.grid = Array(repeating: MinesweeperCell(isMine: false, isRevealed: false, isFlagged: false, adjacentMines: 0), count: 64)
+            self.isGameOver = false
+            self.isWon = false
+            self.hasStarted = false
+        }
+
+        mutating func reveal(at index: Int) {
+            guard index >= 0 && index < 64, !isGameOver, !grid[index].isFlagged, !grid[index].isRevealed else { return }
+            if !hasStarted {
+                hasStarted = true
+                var candidates = Array(0..<64).filter { $0 != index }
+                var seed = UInt64(index + 37) * 6364136223846793005 + 1
+                for i in stride(from: candidates.count - 1, through: 1, by: -1) {
+                    seed = seed &* 6364136223846793005 &+ 1
+                    let j = Int(seed % UInt64(i + 1))
+                    candidates.swapAt(i, j)
+                }
+                for i in 0..<totalMines {
+                    grid[candidates[i]].isMine = true
+                }
+                for r in 0..<8 {
+                    for c in 0..<8 {
+                        let idx = r * 8 + c
+                        if grid[idx].isMine { continue }
+                        var count = 0
+                        for dr in -1...1 {
+                            for dc in -1...1 {
+                                if dr == 0 && dc == 0 { continue }
+                                let nr = r + dr
+                                let nc = c + dc
+                                if nr >= 0 && nr < 8 && nc >= 0 && nc < 8 {
+                                    if grid[nr * 8 + nc].isMine { count += 1 }
+                                }
+                            }
+                        }
+                        grid[idx].adjacentMines = count
+                    }
+                }
+            }
+
+            if grid[index].isMine {
+                grid[index].isRevealed = true
+                isGameOver = true
+                isWon = false
+                for i in 0..<64 {
+                    if grid[i].isMine { grid[i].isRevealed = true }
+                }
+                return
+            }
+
+            var queue = [index]
+            grid[index].isRevealed = true
+            while !queue.isEmpty {
+                let curr = queue.removeFirst()
+                let r = curr / 8
+                let c = curr % 8
+                if grid[curr].adjacentMines == 0 {
+                    for dr in -1...1 {
+                        for dc in -1...1 {
+                            let nr = r + dr
+                            let nc = c + dc
+                            if nr >= 0 && nr < 8 && nc >= 0 && nc < 8 {
+                                let nIdx = nr * 8 + nc
+                                if !grid[nIdx].isRevealed && !grid[nIdx].isFlagged && !grid[nIdx].isMine {
+                                    grid[nIdx].isRevealed = true
+                                    if grid[nIdx].adjacentMines == 0 {
+                                        queue.append(nIdx)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let unrevealedSafe = grid.enumerated().filter { !$0.element.isMine && !$0.element.isRevealed }.count
+            if unrevealedSafe == 0 {
+                isWon = true
+                isGameOver = true
+            }
+        }
+
+        mutating func toggleFlag(at index: Int) {
+            guard index >= 0 && index < 64, !isGameOver, !grid[index].isRevealed else { return }
+            grid[index].isFlagged.toggle()
+        }
+    }
 }

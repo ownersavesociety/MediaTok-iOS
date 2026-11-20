@@ -1123,7 +1123,7 @@ private final class GGCleanDocSenderCoordinator: NSObject, UIDocumentPickerDeleg
 // MARK: - 4. Offline Mini-Games Hub (2048 Neon + Neon Snake)
 
 private final class GGMiniGamesHubViewController: UIViewController {
-    private let segmented = UISegmentedControl(items: ["2048 Neon", "Змейка 🐍"])
+    private let segmented = UISegmentedControl(items: ["2048 Neon", "Змейка 🐍", "Сапёр 💣"])
     private let container = UIView()
     private let game2048 = GG2048View()
     private let snakeGame = GGSnakeView()
@@ -1178,6 +1178,13 @@ private final class GGMiniGamesHubViewController: UIViewController {
     }
 
     @objc private func tabChanged() {
+        if self.segmented.selectedSegmentIndex == 2 {
+            self.snakeGame.stopTimer()
+            let minesweeper = GGMinesweeperViewController()
+            self.navigationController?.pushViewController(minesweeper, animated: true)
+            self.segmented.selectedSegmentIndex = 0
+            return
+        }
         let is2048 = self.segmented.selectedSegmentIndex == 0
         self.game2048.isHidden = !is2048
         self.snakeGame.isHidden = is2048

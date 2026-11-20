@@ -235,6 +235,72 @@ enum GGAppearanceMenu {
             }
         ))
 
+        // Wave 6: TikTok / Reels Channel Media Feed (#187)
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.tiktokFeed",
+            section: .main(of: tab),
+            order: 218,
+            title: { "🎬 TikTok-лента каналов" },
+            subtitle: { "Вертикальная свайп-лента видео и видеосообщений со всех каналов" },
+            kind: .action({ context in
+                let feed = GGTikTokFeedViewController(context: context.context)
+                context.presentNative(feed)
+            }),
+            searchKeywords: { ["tiktok", "тикток", "лента", "видео", "reels", "shorts"] },
+            label: { _ in "REELS" }
+        ))
+
+        // Wave 6: MediaTok Achievements System (#168)
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.achievements",
+            section: .main(of: tab),
+            order: 220,
+            title: { "🏆 Достижения MediaTok" },
+            subtitle: { "Ранги, ночной дозор, стрикер, криптограф, шеринг карточки" },
+            kind: .action({ context in
+                let vc = GGAchievementsViewController()
+                let nav = UINavigationController(rootViewController: vc)
+                context.presentNative(nav)
+            }),
+            searchKeywords: { ["ачивки", "достижения", "ранг", "награды", "achievements"] },
+            label: { _ in
+                let c = GGMediaTokWave6Tools.getUnlockedAchievements().count
+                return "\(c)/12"
+            }
+        ))
+
+        // Wave 6: Bottom Bar / Tab Bar Editor (#110)
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.bottomBar",
+            section: .main(of: tab),
+            order: 222,
+            title: { "📱 Редактор нижнего бара" },
+            subtitle: { "Пресеты таббара, скрыть звонки/контакты, парящий бар (+8pt)" },
+            kind: .action({ context in
+                let vc = GGBottomBarStudioViewController()
+                let nav = UINavigationController(rootViewController: vc)
+                context.presentNative(nav)
+            }),
+            searchKeywords: { ["бар", "таббар", "низ", "панель", "110", "минимал"] },
+            label: { _ in "110" }
+        ))
+
+        // Wave 6: Call Confirm Guard (#58)
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.callConfirm",
+            section: .main(of: tab),
+            order: 224,
+            title: { "📞 Защита от случайных звонков (Call Guard)" },
+            subtitle: { "Подтверждение перед стартом аудио- и видеозвонков из чатов и профилей" },
+            kind: .action({ context in
+                GGMediaTokWave6Tools.isCallConfirmEnabled.toggle()
+                let st = GGMediaTokWave6Tools.isCallConfirmEnabled ? "ВКЛ" : "ВЫКЛ"
+                context.presentToast("Защита звонков: \(st)")
+            }),
+            searchKeywords: { ["звонки", "call", "confirm", "случайный", "guard"] },
+            label: { _ in GGMediaTokWave6Tools.isCallConfirmEnabled ? "ВКЛ" : "ВЫКЛ" }
+        ))
+
         // Bubbles.
         GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: GGAppearanceMenu.messagesBubbles, screen: .tab(tab), order: 300, header: { GGStrings.Appearance.Bubbles.header }, footer: { _ in GGStrings.Appearance.Bubbles.footer }))
         let editorOn: (GGMenuContext) -> Bool = { _ in GGAppearanceSettings.bubbleEditor.value }

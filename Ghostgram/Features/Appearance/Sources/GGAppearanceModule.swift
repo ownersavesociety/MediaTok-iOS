@@ -27,6 +27,7 @@ public enum GGAppearanceModule {
         GGMediaTokStickerVault.register()
         GGMediaTokWave5Tools.register()
         GGMediaTokLiquidUI.register()
+        GGMediaTokWave6Tools.register()
         GGCustomFonts.registerProvider()
         GGAppearanceTheme.register()
         GGAmoledKeyboard.register()

@@ -22,6 +22,12 @@ enum GGMediaTokSecurityTestsMain {
         Self.run("CardCommandParser", Self.testCardCommandParser)
         Self.run("MusicAndConnectionsParsers", Self.testMusicAndConnectionsParsers)
         Self.run("LanUploaderSanitizers", Self.testLanUploaderSanitizers)
+        Self.run("ScratchCommandParser", Self.testScratchCommandParser)
+        Self.run("KeyboardLayoutFixer", Self.testKeyboardLayoutFixer)
+        Self.run("AchievementEvaluation", Self.testAchievementEvaluation)
+        Self.run("WatermarkFormatter", Self.testWatermarkFormatter)
+        Self.run("BottomBarPresets", Self.testBottomBarPresets)
+        Self.run("MinesweeperCoreEngine", Self.testMinesweeperCoreEngine)
 
         print("MediaTok Security Tests Summary: \(Self.passed) passed, \(Self.failed) failed")
         if Self.failed > 0 {
@@ -326,5 +332,76 @@ enum GGMediaTokSecurityTestsMain {
         Self.check(GGMediaTokCoreLogic.sanitizeUploadFileName("../../etc/passwd\0.png") == "passwd.png", "path traversal & null stripped")
         Self.check(GGMediaTokCoreLogic.constantTimeEquals("4829", "4829"), "constantTimeEquals matches identical PIN")
         Self.check(!GGMediaTokCoreLogic.constantTimeEquals("4829", "4820"), "constantTimeEquals rejects mismatched PIN")
+    }
+
+    private static func testScratchCommandParser() {
+        let p1 = GGMediaTokCoreLogic.parseScratchCommand(".scratch Секретный промокод | MT-2026-GHOST")
+        Self.check(p1?.title == "Секретный промокод" && p1?.secret == "MT-2026-GHOST", "Scratch command with title and secret parsed")
+        Self.check(p1?.seed != 0, "Scratch seed must be non-zero")
+
+        let p2 = GGMediaTokCoreLogic.parseScratchCommand(".scratch Только для тебя!")
+        Self.check(p2?.title == "Секретный билет 🎟️" && p2?.secret == "Только для тебя!", "Scratch command default title parsed")
+        Self.check(GGMediaTokCoreLogic.parseScratchCommand(".scratch") == nil, "Empty scratch command returns nil")
+    }
+
+    private static func testKeyboardLayoutFixer() {
+        let fixed1 = GGMediaTokCoreLogic.fixKeyboardLayout("ghbdtn rfr ltkf")
+        Self.check(fixed1 == "привет как дела", "QWERTY to JCUKEN converted correctly: \(fixed1)")
+
+        let fixed2 = GGMediaTokCoreLogic.fixKeyboardLayout("Ghbdtn!")
+        Self.check(fixed2 == "Привет!", "QWERTY with caps and punctuation converted correctly: \(fixed2)")
+
+        let fixedRu = GGMediaTokCoreLogic.fixKeyboardLayout("руддщ цщкдв")
+        Self.check(fixedRu == "hello world", "JCUKEN to QWERTY converted correctly: \(fixedRu)")
+
+        Self.check(GGMediaTokCoreLogic.parseFixCommand(".fix ghbdtn") == "привет", ".fix command parsed")
+        Self.check(GGMediaTokCoreLogic.parseFixCommand(".ghbdtn rfr") == "как", ".ghbdtn command parsed")
+    }
+
+    private static func testAchievementEvaluation() {
+        let unlockedSet: Set<String> = [
+            GGMediaTokCoreLogic.AchievementId.mediatokOg.rawValue,
+            GGMediaTokCoreLogic.AchievementId.nightOwl.rawValue,
+            GGMediaTokCoreLogic.AchievementId.streak7d.rawValue,
+            GGMediaTokCoreLogic.AchievementId.e2eMaster.rawValue
+        ]
+        let eval = GGMediaTokCoreLogic.evaluateAchievements(unlockedIds: unlockedSet)
+        Self.check(eval.unlocked.count == 4, "4 achievements unlocked")
+        Self.check(eval.locked.count == 8, "8 achievements locked")
+        Self.check(eval.tier == "Энтузиаст 🥈", "Tier evaluated as Энтузиаст 🥈")
+    }
+
+    private static func testWatermarkFormatter() {
+        let wm = GGMediaTokCoreLogic.formatWatermarkText(recipient: "durov\nadmin", date: Date(timeIntervalSince1970: 1795171200))
+        Self.check(wm.contains("Для @durov admin"), "Recipient control chars replaced with space")
+        Self.check(wm.contains("MediaTok"), "Default app tag present in watermark")
+    }
+
+    private static func testBottomBarPresets() {
+        let standard = GGMediaTokCoreLogic.BottomTabPreset.standard
+        Self.check(standard.hiddenTabs.isEmpty && !standard.isWide, "Standard preset has no hidden tabs")
+
+        let minimal = GGMediaTokCoreLogic.BottomTabPreset.minimal
+        Self.check(minimal.hiddenTabs.contains("calls") && minimal.hiddenTabs.contains("contacts"), "Minimal preset hides calls and contacts")
+
+        let mediaHub = GGMediaTokCoreLogic.BottomTabPreset.mediaHub
+        Self.check(mediaHub.isWide, "Media hub preset uses wide tab bar")
+    }
+
+    private static func testMinesweeperCoreEngine() {
+        var game = GGMediaTokCoreLogic.MinesweeperGame()
+        Self.check(!game.hasStarted && !game.isGameOver && !game.isWon, "New game is not started")
+
+        // First click is always safe
+        game.reveal(at: 0)
+        Self.check(game.hasStarted, "Game started after first reveal")
+        Self.check(!game.isGameOver, "First click at index 0 is guaranteed safe")
+        Self.check(game.grid[0].isRevealed, "Clicked cell is revealed")
+
+        // Test flag toggle
+        game.toggleFlag(at: 10)
+        Self.check(game.grid[10].isFlagged, "Cell 10 flagged")
+        game.toggleFlag(at: 10)
+        Self.check(!game.grid[10].isFlagged, "Cell 10 unflagged")
     }
 }
