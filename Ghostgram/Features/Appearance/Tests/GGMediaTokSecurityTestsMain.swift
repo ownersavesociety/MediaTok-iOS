@@ -31,6 +31,13 @@ enum GGMediaTokSecurityTestsMain {
         Self.run("AntiPhishingAndHomographDetector", Self.testAntiPhishingAndHomographDetector)
         Self.run("QrCommandParser", Self.testQrCommandParser)
         Self.run("ChannelAdBlockerFilter", Self.testChannelAdBlockerFilter)
+        Self.run("WheelCommandParser", Self.testWheelCommandParser)
+        Self.run("PollCommandParser", Self.testPollCommandParser)
+        Self.run("SplitBillParser", Self.testSplitBillParser)
+        Self.run("TimeCapsuleParser", Self.testTimeCapsuleParser)
+        Self.run("MoodAndWishParsers", Self.testMoodAndWishParsers)
+        Self.run("ScratchWireCodecAndSnippets", Self.testScratchWireCodecAndSnippets)
+        Self.run("PrefixPayloadsAndJsonPrettyPrint", Self.testPrefixPayloadsAndJsonPrettyPrint)
 
         print("MediaTok Security Tests Summary: \(Self.passed) passed, \(Self.failed) failed")
         if Self.failed > 0 {
@@ -440,5 +447,58 @@ enum GGMediaTokSecurityTestsMain {
 
         let normal = "Вышло обновление клиента MediaTok iOS Ghost Edition 13.1.1!"
         Self.check(!GGMediaTokCoreLogic.isChannelAdPost(normal), "Normal post is not identified as ad")
+    }
+
+    private static func testWheelCommandParser() {
+        let w = GGMediaTokCoreLogic.parseWheelCommand(".wheel Пицца | Суши | Бургер")
+        Self.check(w?.count == 3 && w?[0] == "Пицца", "Wheel options parsed")
+        Self.check(GGMediaTokCoreLogic.parseWheelCommand(".wheel Пицца") == nil, "Wheel requires at least 2 options")
+    }
+
+    private static func testPollCommandParser() {
+        let p = GGMediaTokCoreLogic.parsePollCommand(".poll Где встретимся? | Центр | Парк | Кафе")
+        Self.check(p?.question == "Где встретимся?" && p?.options.count == 3, "Poll question and options parsed")
+        Self.check(GGMediaTokCoreLogic.parsePollCommand(".poll Только вопрос | Один") == nil, "Poll requires question and at least 2 options")
+    }
+
+    private static func testSplitBillParser() {
+        let s = GGMediaTokCoreLogic.parseSplitBillCommand(".split 4500 3")
+        Self.check(s?.total == 4500 && s?.peopleCount == 3 && s?.perPerson == 1500, "Split bill parsed")
+        Self.check(GGMediaTokCoreLogic.parseSplitBillCommand(".split -100 2") == nil, "Negative bill rejected")
+    }
+
+    private static func testTimeCapsuleParser() {
+        let c = GGMediaTokCoreLogic.parseTimeCapsuleCommand(".capsule 2027-01-01 С Новым Годом!")
+        Self.check(c?.unlockDateStr == "2027-01-01" && c?.message == "С Новым Годом!", "Capsule parsed")
+        Self.check(GGMediaTokCoreLogic.parseTimeCapsuleCommand(".capsule") == nil, "Empty capsule returns nil")
+    }
+
+    private static func testMoodAndWishParsers() {
+        let m = GGMediaTokCoreLogic.parseMoodCommand(".mood 🔥 Работаю над MediaTok")
+        Self.check(m?.emoji == "🔥" && m?.text == "Работаю над MediaTok", "Mood with emoji parsed")
+
+        let w = GGMediaTokCoreLogic.parseWishCommand(".wish AirPods Pro 2")
+        Self.check(w == "AirPods Pro 2", "Wish parsed")
+    }
+
+    private static func testScratchWireCodecAndSnippets() {
+        let orig = GGMediaTokCoreLogic.ScratchPayload(title: "Сюрприз", secret: "PROMO-777", seed: 123)
+        let wire = GGMediaTokCoreLogic.encodeScratchWireMessage(orig)
+        let decoded = GGMediaTokCoreLogic.decodeScratchWireMessage(wire)
+        Self.check(decoded?.title == "Сюрприз" && decoded?.secret == "PROMO-777", "Scratch wire round-trip preserves title & secret")
+        Self.check(GGMediaTokCoreLogic.decodeScratchWireMessage("обычное сообщение") == nil, "Non-scratch text returns nil")
+
+        Self.check(GGMediaTokCoreLogic.parseSnippetCommand(".sn add карта 2200 7007 1234") == .add(key: "карта", value: "2200 7007 1234"), "Snippet add parsed")
+        Self.check(GGMediaTokCoreLogic.parseSnippetCommand(".sn карта") == .expand(key: "карта"), "Snippet expand parsed")
+        Self.check(GGMediaTokCoreLogic.parseSnippetCommand(".sn del карта") == .remove(key: "карта"), "Snippet del parsed")
+        Self.check(GGMediaTokCoreLogic.parseSnippetCommand(".sn") == .list, "Snippet list parsed")
+    }
+
+    private static func testPrefixPayloadsAndJsonPrettyPrint() {
+        Self.check(GGMediaTokCoreLogic.parsePrefixPayload(".wiki Swift", prefixes: [".wiki ", ".def "]) == "Swift", "Wiki prefix parsed")
+        Self.check(GGMediaTokCoreLogic.parsePrefixPayload(".ai Привет", prefixes: [".ai "]) == "Привет", "AI prefix parsed")
+        let pretty = GGMediaTokCoreLogic.prettyPrintJsonIfValid("{\"b\":2,\"a\":1}")
+        Self.check(pretty != nil && pretty!.contains("\n"), "Valid JSON pretty-printed")
+        Self.check(GGMediaTokCoreLogic.prettyPrintJsonIfValid("not json") == nil, "Invalid JSON returns nil")
     }
 }

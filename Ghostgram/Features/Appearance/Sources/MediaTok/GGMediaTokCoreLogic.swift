@@ -1868,7 +1868,21 @@ enum GGMediaTokCoreLogic {
     }
 
     static func inspectUrlForPhishing(_ rawUrl: String) -> PhishingVerdict {
-        guard let url = URL(string: rawUrl), let host = url.host?.lowercased() else {
+        var s = rawUrl.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if let schemeIdx = s.range(of: "://") {
+            s = String(s[schemeIdx.upperBound...])
+        }
+        if let slashIdx = s.firstIndex(of: "/") {
+            s = String(s[..<slashIdx])
+        }
+        if let colonIdx = s.firstIndex(of: ":") {
+            s = String(s[..<colonIdx])
+        }
+        if let qIdx = s.firstIndex(of: "?") {
+            s = String(s[..<qIdx])
+        }
+        let host = s
+        guard !host.isEmpty else {
             return PhishingVerdict(isSuspicious: false, reason: nil)
         }
 
@@ -1930,4 +1944,193 @@ enum GGMediaTokCoreLogic {
     // MARK: - 23. Voice Speed Presets (#3)
 
     static let expandedVoiceSpeeds: [Float] = [1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0]
+
+    // MARK: - 24. Wheel of Fortune Parser (#170)
+
+    static func parseWheelCommand(_ raw: String) -> [String]? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix(".wheel ") else { return nil }
+        let body = String(trimmed.dropFirst(7)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = body.split(separator: "|").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return parts.count >= 2 ? parts : nil
+    }
+
+    // MARK: - 25. 1-on-1 Private Poll Parser (#176)
+
+    struct PollPayload: Equatable {
+        let question: String
+        let options: [String]
+    }
+
+    static func parsePollCommand(_ raw: String) -> PollPayload? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix(".poll ") else { return nil }
+        let body = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = body.split(separator: "|").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard parts.count >= 3 else { return nil }
+        return PollPayload(question: parts[0], options: Array(parts.dropFirst()))
+    }
+
+    // MARK: - 26. Split Bill Parser (#177)
+
+    struct SplitBillPayload: Equatable {
+        let total: Double
+        let peopleCount: Int
+        let perPerson: Double
+    }
+
+    static func parseSplitBillCommand(_ raw: String) -> SplitBillPayload? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix(".split ") else { return nil }
+        let body = String(trimmed.dropFirst(7)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let tokens = body.split(whereSeparator: { $0.isWhitespace })
+        guard tokens.count == 2,
+              let total = Double(tokens[0]),
+              let count = Int(tokens[1]),
+              total > 0, count > 0 else {
+            return nil
+        }
+        let per = (total / Double(count) * 100.0).rounded() / 100.0
+        return SplitBillPayload(total: total, peopleCount: count, perPerson: per)
+    }
+
+    // MARK: - 27. Time Capsule Parser (#166)
+
+    struct TimeCapsulePayload: Equatable {
+        let unlockDateStr: String
+        let message: String
+    }
+
+    static func parseTimeCapsuleCommand(_ raw: String) -> TimeCapsulePayload? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix(".capsule ") else { return nil }
+        let body = String(trimmed.dropFirst(9)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let spaceIdx = body.firstIndex(of: " ") else { return nil }
+        let dateStr = String(body[..<spaceIdx]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let msg = String(body[body.index(after: spaceIdx)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !dateStr.isEmpty, !msg.isEmpty else { return nil }
+        return TimeCapsulePayload(unlockDateStr: dateStr, message: msg)
+    }
+
+    // MARK: - 28. Mood Bubble Parser (#31)
+
+    struct MoodPayload: Equatable {
+        let emoji: String
+        let text: String
+    }
+
+    static func parseMoodCommand(_ raw: String) -> MoodPayload? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix(".mood ") else { return nil }
+        let body = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return nil }
+        if let spaceIdx = body.firstIndex(of: " ") {
+            let em = String(body[..<spaceIdx])
+            let tx = String(body[body.index(after: spaceIdx)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return MoodPayload(emoji: em, text: tx)
+        }
+        return MoodPayload(emoji: "✨", text: body)
+    }
+
+    // MARK: - 29. Wishlist Parser (#178)
+
+    static func parseWishCommand(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix(".wish ") else { return nil }
+        let body = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return body.isEmpty ? nil : String(body.prefix(200))
+    }
+
+    // MARK: - 30. Scratch Message End-to-End Wire Codec (#163)
+
+    static let scratchWirePrefix = "🎟️MTS1:"
+
+    static func encodeScratchWireMessage(_ payload: ScratchPayload) -> String {
+        let joined = "\(payload.title)\u{001F}\(payload.secret)"
+        let b64 = Data(joined.utf8).base64EncodedString()
+        return "🎟️ Скретч-карта «\(payload.title)»\n🪙 Зажми сообщение → «Стереть пальцем» в MediaTok\n\(scratchWirePrefix)\(b64)"
+    }
+
+    static func decodeScratchWireMessage(_ text: String) -> ScratchPayload? {
+        guard let range = text.range(of: scratchWirePrefix) else { return nil }
+        let tail = String(text[range.upperBound...])
+            .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .first
+            .map { String($0) } ?? ""
+        guard !tail.isEmpty,
+              let data = Data(base64Encoded: tail),
+              let decoded = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let parts = decoded.split(separator: "\u{001F}", maxSplits: 1, omittingEmptySubsequences: false)
+        let title = parts.count > 0 ? String(parts[0]) : "Секретный билет 🎟️"
+        let secret = parts.count > 1 ? String(parts[1]) : decoded
+        guard !secret.isEmpty else { return nil }
+        var h: UInt64 = 14695981039346656037
+        for b in secret.utf8 {
+            h ^= UInt64(b)
+            h &*= 1099511628211
+        }
+        return ScratchPayload(title: String(title.prefix(40)), secret: String(secret.prefix(500)), seed: h)
+    }
+
+    // MARK: - 31. Custom Snippets / Macros Parser (#61)
+
+    enum SnippetCommand: Equatable {
+        case list
+        case add(key: String, value: String)
+        case remove(key: String)
+        case expand(key: String)
+    }
+
+    static func parseSnippetCommand(_ raw: String) -> SnippetCommand? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower == ".sn" || lower == ".sn list" || lower == ".snippets" {
+            return .list
+        }
+        guard lower.hasPrefix(".sn ") else { return nil }
+        let rest = String(trimmed.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let restLower = rest.lowercased()
+        if restLower.hasPrefix("add ") {
+            let body = String(rest.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let sp = body.firstIndex(of: " ") else { return nil }
+            let key = String(body[..<sp]).lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            let val = String(body[body.index(after: sp)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty, !val.isEmpty else { return nil }
+            return .add(key: String(key.prefix(32)), value: String(val.prefix(2000)))
+        }
+        if restLower.hasPrefix("del ") {
+            let key = String(rest.dropFirst(4)).lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            return key.isEmpty ? nil : .remove(key: String(key.prefix(32)))
+        }
+        let key = rest.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        return key.isEmpty ? nil : .expand(key: String(key.prefix(32)))
+    }
+
+    // MARK: - 32. Wiki / Unshort / AI / Note / JSON Helpers (#64, #66, #121, #193, #198)
+
+    static func parsePrefixPayload(_ raw: String, prefixes: [String], maxLen: Int = 500) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        for p in prefixes {
+            if lower.hasPrefix(p) {
+                let body = String(trimmed.dropFirst(p.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                return body.isEmpty ? nil : String(body.prefix(maxLen))
+            }
+        }
+        return nil
+    }
+
+    static func prettyPrintJsonIfValid(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (trimmed.hasPrefix("{") && trimmed.hasSuffix("}")) || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]")),
+              let data = trimmed.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data, options: []),
+              let pretty = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]),
+              let str = String(data: pretty, encoding: .utf8) else {
+            return nil
+        }
+        return str
+    }
 }

@@ -607,7 +607,7 @@ enum GGMediaTokWave5Tools {
         }
     }
 
-    private static func renderInfoCardSticker(_ payload: GGMediaTokCoreLogic.CardPayload) -> UIImage {
+    static func renderInfoCardSticker(_ payload: GGMediaTokCoreLogic.CardPayload) -> UIImage {
         let width: CGFloat = 512.0
         let height: CGFloat = min(512.0, max(220.0, CGFloat(130 + payload.lines.count * 38)))
         let size = CGSize(width: width, height: height)
@@ -1029,7 +1029,7 @@ enum GGMediaTokWave5Tools {
         context.presentNative(sheet)
     }
 
-    private static func presentOnRoot(_ controller: UIViewController) {
+    static func presentOnRoot(_ controller: UIViewController) {
         DispatchQueue.main.async {
             let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             guard let root = scenes.flatMap({ $0.windows }).first(where: { $0.isKeyWindow })?.rootViewController else {
@@ -1048,7 +1048,7 @@ enum GGMediaTokWave5Tools {
         }
     }
 
-    private static func showToast(context: AccountContext, text: String) {
+    static func showToast(context: AccountContext, text: String) {
         DispatchQueue.main.async {
             let presentationData = context.sharedContext.currentPresentationData.with { $0 }
             let overlay = UndoOverlayController(

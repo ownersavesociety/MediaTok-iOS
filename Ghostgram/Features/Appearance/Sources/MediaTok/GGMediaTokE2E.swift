@@ -261,7 +261,13 @@ enum GGMediaTokE2E {
         if lower.hasPrefix("/") {
             return true
         }
-        let prefixes = [".color ", ".col ", ".q ", ".stats ", ".card ", ".e2e", ".afk", ".c ", ".c! ", ".clip", ".streak"]
+        let prefixes = [
+            ".color ", ".col ", ".q ", ".stats ", ".card ", ".e2e", ".afk",
+            ".c ", ".c! ", ".clip", ".streak",
+            ".scratch ", ".qr ", ".fix", ".ghbdtn", ".wheel ", ".poll ",
+            ".split ", ".capsule ", ".mood ", ".wish ", ".sn", ".wiki ",
+            ".def ", ".unshort ", ".ai ", ".note"
+        ]
         for p in prefixes {
             if lower.hasPrefix(p) {
                 return true

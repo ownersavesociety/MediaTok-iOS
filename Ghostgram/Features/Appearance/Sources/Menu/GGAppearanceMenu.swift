@@ -243,7 +243,7 @@ enum GGAppearanceMenu {
             title: { "🎬 TikTok-лента каналов" },
             subtitle: { "Вертикальная свайп-лента видео и видеосообщений со всех каналов" },
             kind: .action({ context in
-                let feed = GGTikTokFeedViewController(context: context.context)
+                let feed = GGTikTokFeedViewController(context: context.context, navigationController: context.navigationController)
                 context.presentNative(feed)
             }),
             searchKeywords: { ["tiktok", "тикток", "лента", "видео", "reels", "shorts"] },
@@ -315,6 +315,20 @@ enum GGAppearanceMenu {
             }),
             searchKeywords: { ["реклама", "adblock", "erid", "спам", "каналы"] },
             label: { _ in GGMediaTokWave6Tools.isAdBlockEnabled ? "ВКЛ" : "ВЫКЛ" }
+        ))
+
+        // Wave 6: MediaTok Wrapped (#169), Self-Diagnostics (#199) & Privacy Screen (#48)
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.wrappedDiag",
+            section: .main(of: tab),
+            order: 228,
+            title: { "🩺 MediaTok Wrapped / Диагностика / Защита от плеча" },
+            subtitle: { "Итоги статистики, статус модулей, сниппеты, граффити, .ai/.wiki/.scratch/.qr" },
+            kind: .action({ context in
+                GGMediaTokWave6Tools.presentWrappedAndDiagnostics(context: context)
+            }),
+            searchKeywords: { ["wrapped", "итоги", "диагностика", "privacy", "плеча", "статистика"] },
+            label: { _ in "W6" }
         ))
 
         // Bubbles.
