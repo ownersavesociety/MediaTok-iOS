@@ -663,6 +663,7 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
             if !supplementary {
                 context.setDiscoverBackupAddressListSignal(MTBackupAddressSignals.fetchBackupIps(testingEnvironment, currentContext: context, additionalSource: wrappedAdditionalSource, phoneNumber: phoneNumber, mainDatacenterId: datacenterId))
                 let externalRequestVerificationStream = arguments.externalRequestVerificationStream
+                let apnsVerificationTimeout: Double = arguments.isICloudEnabled ? 15.0 : 1.5
                 context.setExternalRequestVerification({ nonce in
                     return MTSignal(generator: { subscriber in
                         let disposable = (externalRequestVerificationStream
@@ -671,7 +672,7 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
                         }
                         |> filter { $0 != nil }
                         |> take(1)
-                        |> timeout(15.0, queue: .mainQueue(), alternate: .single("APNS_PUSH_TIMEOUT"))).start(next: { secret in
+                        |> timeout(apnsVerificationTimeout, queue: .mainQueue(), alternate: .single("APNS_PUSH_TIMEOUT"))).start(next: { secret in
                             subscriber?.putNext(secret)
                             subscriber?.putCompletion()
                         })
@@ -685,6 +686,9 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
                 context.setExternalRecaptchaRequestVerification({ method, siteKey in
                     return MTSignal(generator: { subscriber in
                         let disposable = (externalRecaptchaRequestVerification(method, siteKey)
+                        |> map { token -> String? in
+                            return token ?? "RECAPTCHA_TIMEOUT"
+                        }
                         |> filter { $0 != nil }
                         |> take(1)
                         |> timeout(15.0, queue: .mainQueue(), alternate: .single("RECAPTCHA_TIMEOUT"))).start(next: { token in

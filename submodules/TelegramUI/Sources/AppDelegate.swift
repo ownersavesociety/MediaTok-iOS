@@ -351,7 +351,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     private let voipDeviceToken = Promise<Data?>(nil)
     private let regularDeviceToken = Promise<Data?>(nil)
     
-    private var recaptchaClientsBySiteKey: [String: Promise<RecaptchaClient>] = [:]
+    private var recaptchaClientsBySiteKey: [String: Promise<RecaptchaClient?>] = [:]
         
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         precondition(!testIsLaunched)
@@ -644,17 +644,18 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                     // errors under -warnings-as-errors (Xcode 27's leaves them as warnings). The
                     // promise is in fact only ever set on the main queue, which Queue.mainQueue()
                     // guarantees and the compiler cannot see - hence the explicit opt-out.
-                    nonisolated(unsafe) let recaptchaClient: Promise<RecaptchaClient>
+                    nonisolated(unsafe) let recaptchaClient: Promise<RecaptchaClient?>
                     if let current = self.recaptchaClientsBySiteKey[siteKey] {
                         recaptchaClient = current
                     } else {
-                        recaptchaClient = Promise<RecaptchaClient>()
+                        recaptchaClient = Promise<RecaptchaClient?>()
                         self.recaptchaClientsBySiteKey[siteKey] = recaptchaClient
                         
                         Recaptcha.fetchClient(withSiteKey: siteKey) { client, error in
                             Queue.mainQueue().async {
                                 guard let client else {
                                     Logger.shared.log("App \(self.episodeId)", "RecaptchaClient creation error: \(String(describing: error)).")
+                                    recaptchaClient.set(.single(nil))
                                     return
                                 }
                                 recaptchaClient.set(.single(client))
@@ -665,6 +666,9 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                     return (recaptchaClient.get()
                     |> take(1)
                     |> mapToSignal { recaptchaClient -> Signal<String?, NoError> in
+                        guard let recaptchaClient else {
+                            return .single("RECAPTCHA_TIMEOUT")
+                        }
                         return Signal { subscriber in
                             var recaptchaAction: RecaptchaAction?
                             switch method {
@@ -675,7 +679,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                             }
                             
                             guard let recaptchaAction else {
-                                subscriber.putNext(nil)
+                                subscriber.putNext("RECAPTCHA_TIMEOUT")
                                 subscriber.putCompletion()
                                 
                                 return EmptyDisposable
@@ -685,7 +689,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                                     subscriber.putNext(token)
                                     Logger.shared.log("App \(self.episodeId)", "RecaptchaClient executed successfully")
                                 } else {
-                                    subscriber.putNext(nil)
+                                    subscriber.putNext("RECAPTCHA_TIMEOUT")
                                     Logger.shared.log("App \(self.episodeId)", "RecaptchaClient execute error: \(String(describing: error))")
                                 }
                                 subscriber.putCompletion()

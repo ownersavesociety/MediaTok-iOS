@@ -262,7 +262,7 @@ public func sendAuthorizationCode(accountManager: AccountManager<TelegramAccount
                 return .fail(.generic(info: (Int(error.errorCode), error.errorDescription)))
             }
         }
-        |> timeout(20.0, queue: Queue.concurrentDefaultQueue(), alternate: .fail(.timeout))
+        |> timeout(45.0, queue: Queue.concurrentDefaultQueue(), alternate: .fail(.timeout))
         
         return codeAndAccount
         |> mapToSignal { result, account -> Signal<SendAuthorizationCodeResult, AuthorizationCodeRequestError> in
