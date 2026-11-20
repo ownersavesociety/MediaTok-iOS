@@ -38,6 +38,7 @@ enum GGMediaTokSecurityTestsMain {
         Self.run("MoodAndWishParsers", Self.testMoodAndWishParsers)
         Self.run("ScratchWireCodecAndSnippets", Self.testScratchWireCodecAndSnippets)
         Self.run("PrefixPayloadsAndJsonPrettyPrint", Self.testPrefixPayloadsAndJsonPrettyPrint)
+        Self.run("CloudBackupCodec", Self.testCloudBackupCodec)
 
         print("MediaTok Security Tests Summary: \(Self.passed) passed, \(Self.failed) failed")
         if Self.failed > 0 {
@@ -500,5 +501,22 @@ enum GGMediaTokSecurityTestsMain {
         let pretty = GGMediaTokCoreLogic.prettyPrintJsonIfValid("{\"b\":2,\"a\":1}")
         Self.check(pretty != nil && pretty!.contains("\n"), "Valid JSON pretty-printed")
         Self.check(GGMediaTokCoreLogic.prettyPrintJsonIfValid("not json") == nil, "Invalid JSON returns nil")
+    }
+
+    private static func testCloudBackupCodec() {
+        let payload = GGMediaTokCoreLogic.MediaTokBackupPayload(
+            version: 1,
+            createdAt: 1795171200,
+            bools: ["mediatok.adblock.enabled.v1": true, "mediatok.video.4k60.v1": true],
+            strings: ["mediatok.liquid_glass.preset.v1": "ios27_clear"],
+            stringArrays: ["mediatok.achievements.unlocked.v1": ["mediatok_og", "night_owl"]],
+            snippets: ["карта": "2200 7007"],
+            notes: ["12345": "Напомнить завтра"]
+        )
+        let data = GGMediaTokCoreLogic.encodeBackupPayload(payload)
+        Self.check(data != nil && !data!.isEmpty, "Backup payload encoded")
+        let decoded = data.flatMap { GGMediaTokCoreLogic.decodeBackupPayload($0) }
+        Self.check(decoded == payload, "Backup payload round-trip matches exactly")
+        Self.check(GGMediaTokCoreLogic.decodeBackupPayload(Data("{\"version\":99}".utf8)) == nil, "Unknown backup version rejected")
     }
 }

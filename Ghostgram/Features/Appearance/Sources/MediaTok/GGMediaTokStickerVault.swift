@@ -971,6 +971,8 @@ private final class GGMediaTokLanUploader {
     private let queue = DispatchQueue(label: "org.mediatok.lan_uploader")
     private var listener: NWListener?
     private(set) var pin: String = ""
+    private var failedPinAttempts: Int = 0
+    private var pinLockedUntil: Date = .distantPast
     private(set) var port: UInt16 = 0
     var onLog: ((String) -> Void)?
 
@@ -1092,13 +1094,25 @@ private final class GGMediaTokLanUploader {
             return
         }
 
+        if Date() < self.pinLockedUntil {
+            self.sendJson(conn, status: "429 Too Many Requests", body: "{\"ok\":false,\"error\":\"Слишком много неверных PIN. Подождите 60 сек.\"}")
+            return
+        }
+
         let headerPin = lines.first(where: { $0.lowercased().hasPrefix("x-pin:") })?
             .dropFirst("x-pin:".count).trimmingCharacters(in: .whitespaces) ?? ""
         let suppliedPin = !headerPin.isEmpty ? headerPin : (queryMap["pin"] ?? "")
         guard GGMediaTokCoreLogic.constantTimeEquals(suppliedPin, self.pin) else {
+            self.failedPinAttempts += 1
+            if self.failedPinAttempts >= 5 {
+                self.pinLockedUntil = Date().addingTimeInterval(60.0)
+                self.failedPinAttempts = 0
+                self.emitLog("🔒 Блокировка на 60 сек после 5 неверных PIN")
+            }
             self.sendJson(conn, status: "403 Forbidden", body: "{\"ok\":false,\"error\":\"Неверный PIN-код\"}")
             return
         }
+        self.failedPinAttempts = 0
 
         let body = bodyLength > 0 ? buffer.subdata(in: headerEnd ..< (headerEnd + bodyLength)) : Data()
         guard !body.isEmpty else {
@@ -1264,7 +1278,7 @@ private final class GGMediaTokLanUploader {
         const f=arr[i];
         prog.textContent=`Загрузка ${i+1} / ${arr.length}: ${f.name} (OK: ${ok}, Ошибки: ${fail})`;
         try{
-          const url=`/api/upload/${kind}?pin=${encodeURIComponent(pin)}&name=${encodeURIComponent(f.name)}&tags=${tags}`;
+          const url=`/api/upload/${kind}?name=${encodeURIComponent(f.name)}&tags=${tags}`;
           const r=await fetch(url,{method:'POST',headers:{'X-Pin':pin},body:f});
           if(r.ok) ok++; else fail++;
         }catch(e){fail++;}

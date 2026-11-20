@@ -2133,4 +2133,31 @@ enum GGMediaTokCoreLogic {
         }
         return str
     }
+
+    // MARK: - 33. MediaTok Cloud Backup (.mtbak for Telegram Saved Messages)
+
+    struct MediaTokBackupPayload: Codable, Equatable {
+        let version: Int
+        let createdAt: Int64
+        let bools: [String: Bool]
+        let strings: [String: String]
+        let stringArrays: [String: [String]]
+        let snippets: [String: String]
+        let notes: [String: String]
+    }
+
+    static func encodeBackupPayload(_ payload: MediaTokBackupPayload) -> Data? {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.sortedKeys]
+        return try? enc.encode(payload)
+    }
+
+    static func decodeBackupPayload(_ data: Data) -> MediaTokBackupPayload? {
+        guard !data.isEmpty, data.count <= 2 * 1024 * 1024 else { return nil }
+        guard let decoded = try? JSONDecoder().decode(MediaTokBackupPayload.self, from: data),
+              decoded.version == 1 else {
+            return nil
+        }
+        return decoded
+    }
 }

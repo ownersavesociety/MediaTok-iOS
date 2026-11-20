@@ -372,8 +372,15 @@ public enum GGMediaTokWave6Tools {
                 continue
             }
             for rep in imgMedia.representations {
-                guard rep.resource is LocalFileMediaResource,
-                      let path = context.account.postbox.mediaBox.completedResourcePath(rep.resource),
+                let localPath: String?
+                if let refRes = rep.resource as? LocalFileReferenceMediaResource {
+                    localPath = refRes.localFilePath
+                } else if rep.resource is LocalFileMediaResource {
+                    localPath = context.account.postbox.mediaBox.completedResourcePath(rep.resource)
+                } else {
+                    localPath = nil
+                }
+                guard let path = localPath,
                       let uiImg = UIImage(contentsOfFile: path) else {
                     continue
                 }
@@ -647,20 +654,34 @@ public enum GGMediaTokWave6Tools {
             }
         }
 
-        // 3. Extract Audio (.m4a) from Video/Circle (#20)
-        if let file = message.media.first(where: { $0 is TelegramMediaFile }) as? TelegramMediaFile,
-           (file.isVideo || file.isInstantVideo) {
-            let res = file.resource
-            entries.append(GGMessageMenuEntry(position: .bottom, item: .action(ContextMenuActionItem(
-                text: "🎵 Извлечь звук (.m4a)",
-                icon: { theme in
-                    return UIImage(systemName: "waveform.and.mic")?.withTintColor(theme.contextMenu.primaryColor, renderingMode: .alwaysOriginal)
-                },
-                action: { _, f in
-                    f(.default)
-                    GGMediaTokWave6Tools.extractAudioFromVideo(context: context, resource: res)
-                }
-            ))))
+        // 3. Extract Audio (.m4a) from Video/Circle (#20) OR Restore MediaTok Cloud Backup (.mtbak)
+        if let file = message.media.first(where: { $0 is TelegramMediaFile }) as? TelegramMediaFile {
+            let fname = (file.fileName ?? "").lowercased()
+            if fname.hasSuffix(".mtbak") {
+                let res = file.resource
+                entries.append(GGMessageMenuEntry(position: .top, item: .action(ContextMenuActionItem(
+                    text: "♻️ Восстановить MediaTok из бэкапа",
+                    icon: { theme in
+                        return UIImage(systemName: "icloud.and.arrow.down.fill")?.withTintColor(theme.contextMenu.primaryColor, renderingMode: .alwaysOriginal)
+                    },
+                    action: { _, f in
+                        f(.default)
+                        GGMediaTokWave6Tools.restoreMediaTokBackup(context: context, resource: res)
+                    }
+                ))))
+            } else if file.isVideo || file.isInstantVideo {
+                let res = file.resource
+                entries.append(GGMessageMenuEntry(position: .bottom, item: .action(ContextMenuActionItem(
+                    text: "🎵 Извлечь звук (.m4a)",
+                    icon: { theme in
+                        return UIImage(systemName: "waveform.and.mic")?.withTintColor(theme.contextMenu.primaryColor, renderingMode: .alwaysOriginal)
+                    },
+                    action: { _, f in
+                        f(.default)
+                        GGMediaTokWave6Tools.extractAudioFromVideo(context: context, resource: res)
+                    }
+                ))))
+            }
         }
 
         // 4. Dev Inspector / JSON Viewer (#191, #193)
@@ -755,7 +776,9 @@ public enum GGMediaTokWave6Tools {
         guard let url = URL(string: "https://ru.wikipedia.org/api/rest_v1/page/summary/\(encoded)") else { return }
         var req = URLRequest(url: url, timeoutInterval: 8.0)
         req.setValue("MediaTok-iOS/1.0", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.dataTask(with: req) { data, _, _ in
+        let session = URLSession(configuration: .ephemeral)
+        session.dataTask(with: req) { data, _, _ in
+            defer { session.finishTasksAndInvalidate() }
             guard let data,
                   let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                   let extract = obj["extract"] as? String,
@@ -780,6 +803,18 @@ public enum GGMediaTokWave6Tools {
     }
 
     private static func unshortenUrl(_ rawUrl: String, context: AccountContext) {
+        if let ipLogger = GGMediaTokCoreLogic.detectIpLoggerHost(text: rawUrl, extraUrls: [rawUrl]) {
+            DispatchQueue.main.async {
+                let alert = UIAlertController(
+                    title: "🚨 Заблокировано: IP-логгер!",
+                    message: "Домен «\(ipLogger)» в чёрном списке IP-логгеров. Сетевой запрос НЕ отправлен — твой IP в безопасности.",
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: "Понятно", style: .default))
+                GGMediaTokWave5Tools.presentOnRoot(alert)
+            }
+            return
+        }
         let verdict = GGMediaTokCoreLogic.inspectUrlForPhishing(rawUrl)
         guard let url = URL(string: rawUrl), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             GGMediaTokWave5Tools.showToast(context: context, text: "🔗 Некорректная ссылка")
@@ -825,7 +860,9 @@ public enum GGMediaTokWave6Tools {
         ]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         GGMediaTokWave5Tools.showToast(context: context, text: "🤖 Думаю...")
-        URLSession.shared.dataTask(with: req) { data, _, _ in
+        let session = URLSession(configuration: .ephemeral)
+        session.dataTask(with: req) { data, _, _ in
+            defer { session.finishTasksAndInvalidate() }
             guard let data,
                   let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                   let cands = obj["candidates"] as? [[String: Any]],
@@ -1067,6 +1104,9 @@ public enum GGMediaTokWave6Tools {
         """
 
         let alert = UIAlertController(title: "🩺 Wrapped & Диагностика MediaTok", message: report, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "☁️ Бэкап MediaTok в Избранное (ТГ)", style: .default, handler: { _ in
+            GGMediaTokWave6Tools.backupMediaTokToSavedMessages(context: context.context)
+        }))
         alert.addAction(UIAlertAction(title: "Поделиться Wrapped", style: .default, handler: { _ in
             let vc = UIActivityViewController(activityItems: [report], applicationActivities: nil)
             GGMediaTokWave5Tools.presentOnRoot(vc)
@@ -1076,6 +1116,123 @@ public enum GGMediaTokWave6Tools {
         }))
         alert.addAction(UIAlertAction(title: "Закрыть", style: .cancel))
         context.presentNative(alert)
+    }
+
+    // MARK: - MediaTok Cloud Backup via Telegram Saved Messages (.mtbak)
+
+    public static func backupMediaTokToSavedMessages(context: AccountContext) {
+        let ud = UserDefaults.standard
+        let boolKeys = [
+            GGMediaTokWave6Tools.callConfirmKey,
+            GGMediaTokWave6Tools.watermarkEnabledKey,
+            GGMediaTokWave6Tools.adBlockKey,
+            "mediatok.ui.zero_bloat.v1",
+            "mediatok.ui.compact_mode.v1",
+            "mediatok.video.4k60.v1",
+            "mediatok.privacy.stripFileMeta.v1",
+            "mediatok.guard.confirmForward.v1",
+            "mediatok.guard.confirmPhotoSend.v1"
+        ]
+        var bools: [String: Bool] = [:]
+        for k in boolKeys where ud.object(forKey: k) != nil {
+            bools[k] = ud.bool(forKey: k)
+        }
+        let stringKeys = [
+            GGMediaTokWave6Tools.watermarkTagKey,
+            "mediatok.liquid_glass.preset.v1",
+            "mediatok.checkmarks.style.v1",
+            "mediatok.profile.mood"
+        ]
+        var strings: [String: String] = [:]
+        for k in stringKeys {
+            if let v = ud.string(forKey: k) { strings[k] = v }
+        }
+        let arrayKeys = [
+            GGMediaTokWave6Tools.unlockedAchievementsKey,
+            "mediatok.profile.wishes"
+        ]
+        var arrays: [String: [String]] = [:]
+        for k in arrayKeys {
+            if let v = ud.stringArray(forKey: k) { arrays[k] = v }
+        }
+        var notes: [String: String] = [:]
+        for (k, v) in ud.dictionaryRepresentation() {
+            if k.hasPrefix(GGMediaTokWave6Tools.notesPrefixKey), let str = v as? String, !str.isEmpty {
+                notes[String(k.dropFirst(GGMediaTokWave6Tools.notesPrefixKey.count))] = str
+            }
+        }
+
+        let payload = GGMediaTokCoreLogic.MediaTokBackupPayload(
+            version: 1,
+            createdAt: Int64(Date().timeIntervalSince1970),
+            bools: bools,
+            strings: strings,
+            stringArrays: arrays,
+            snippets: GGMediaTokWave6Tools.loadSnippets(),
+            notes: notes
+        )
+        guard let data = GGMediaTokCoreLogic.encodeBackupPayload(payload), !data.isEmpty else {
+            GGMediaTokWave5Tools.showToast(context: context, text: "Не удалось сформировать бэкап")
+            return
+        }
+
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        let fileName = "mediatok_backup_\(df.string(from: Date())).mtbak"
+        let fileId = Int64.random(in: Int64.min ... Int64.max)
+        let resource = LocalFileMediaResource(fileId: fileId)
+        context.account.postbox.mediaBox.storeResourceData(resource.id, data: data, synchronous: true)
+
+        let media = TelegramMediaFile(
+            fileId: EngineMedia.Id(namespace: Namespaces.Media.LocalFile, id: fileId),
+            partialReference: nil,
+            resource: resource,
+            previewRepresentations: [],
+            videoThumbnails: [],
+            immediateThumbnailData: nil,
+            mimeType: "application/octet-stream",
+            size: Int64(data.count),
+            attributes: [.FileName(fileName: fileName)],
+            alternativeRepresentations: []
+        )
+        let msg = EnqueueMessage.message(
+            text: "☁️ MediaTok Cloud Backup (настройки, сниппеты, заметки, ачивки — без ключей E2E).\nЧтобы восстановить на новом iPhone: зажми файл → «♻️ Восстановить MediaTok из бэкапа».",
+            attributes: [],
+            inlineStickers: [:],
+            mediaReference: .standalone(media: media),
+            threadId: nil,
+            replyToMessageId: nil,
+            replyToStoryId: nil,
+            localGroupingKey: nil,
+            correlationId: nil,
+            bubbleUpEmojiOrStickersets: []
+        )
+        _ = enqueueMessages(account: context.account, peerId: context.account.peerId, messages: [msg]).start()
+        GGMediaTokWave5Tools.showToast(context: context, text: "☁️ Бэкап отправлен в Избранное на серверы Telegram!")
+    }
+
+    private static func restoreMediaTokBackup(context: AccountContext, resource: MediaResource) {
+        GGMediaTokWave5Tools.showToast(context: context, text: "♻️ Загружаю бэкап MediaTok...")
+        let _ = (context.account.postbox.mediaBox.resourceData(resource, option: .complete(waitUntilFetchStatus: false))
+        |> filter { $0.complete }
+        |> take(1)
+        |> deliverOnMainQueue).start(next: { resData in
+            guard let raw = try? Data(contentsOf: URL(fileURLWithPath: resData.path)),
+                  let payload = GGMediaTokCoreLogic.decodeBackupPayload(raw) else {
+                GGMediaTokWave5Tools.showToast(context: context, text: "Файл бэкапа повреждён или несовместим")
+                return
+            }
+            let ud = UserDefaults.standard
+            for (k, v) in payload.bools { ud.set(v, forKey: k) }
+            for (k, v) in payload.strings { ud.set(v, forKey: k) }
+            for (k, v) in payload.stringArrays { ud.set(v, forKey: k) }
+            GGMediaTokWave6Tools.saveSnippets(payload.snippets)
+            for (pid, note) in payload.notes {
+                ud.set(note, forKey: "\(GGMediaTokWave6Tools.notesPrefixKey)\(pid)")
+            }
+            GGThemeHooks.invalidate()
+            GGMediaTokWave5Tools.showToast(context: context, text: "✅ MediaTok восстановлен: \(payload.snippets.count) сниппетов, \(payload.notes.count) заметок, \(payload.bools.count) настроек!")
+        })
     }
 }
 
