@@ -248,7 +248,8 @@ public final class EmojiSearchContent: ASDisplayNode, EntitySearchContainerNode 
                                     }
                                     
                                     if item.file.isCustomEmoji {
-                                        if !item.file.isPremiumEmoji || hasPremium {
+                                        let mtEmojiUnlocked = UserDefaults.standard.object(forKey: "mediatok.premium_emoji.enabled.v1") == nil || UserDefaults.standard.bool(forKey: "mediatok.premium_emoji.enabled.v1")
+                                        if !item.file.isPremiumEmoji || hasPremium || mtEmojiUnlocked {
                                             if let alt = item.file.customEmojiAlt {
                                                 if !alt.isEmpty, let keyword = allEmoticons[alt] {
                                                     result.append((alt, item.file, keyword))

@@ -171,17 +171,17 @@ enum GGAppearanceMenu {
             }
         ))
         GGMenuRegistry.register(GGMenuRow(
-            id: "root.mediatok.localPremium",
+            id: "root.mediatok.premiumEmoji",
             section: rootMediaTokSection,
             order: 450,
-            title: { "⭐ Локальный Telegram Premium" },
-            subtitle: { "Значок, Premium-иконки, цвет шапки, эмодзи-статус, без рекламы" },
-            icon: .system("star.fill"),
+            title: { "✨ Премиум Эмодзи" },
+            subtitle: { "Все паки в клавиатуре, отправка в чатах без подписки, эмодзи-статус" },
+            icon: .system("face.smiling"),
             kind: .action({ context in
-                GGMediaTokWave5Tools.presentLocalPremiumSheet(context: context)
+                GGMediaTokWave5Tools.presentPremiumEmojiSheet(context: context)
             }),
-            searchKeywords: { ["premium", "премиум", "локальный", "иконки", "статус", "цвет"] },
-            label: { _ in GGMediaTokWave5Tools.isLocalPremiumEnabled ? "ВКЛ" : "ВЫКЛ" }
+            searchKeywords: { ["emoji", "эмодзи", "премиум", "premium", "статус"] },
+            label: { _ in GGMediaTokWave5Tools.isPremiumEmojiEnabled ? "ВКЛ" : "ВЫКЛ" }
         ))
         GGMenuRegistry.register(GGMenuRow(
             id: "root.mediatok.allFeatures",
@@ -205,18 +205,18 @@ enum GGAppearanceMenu {
             header: { "⚡ Эксклюзивы MediaTok Studio" }
         ))
 
-        // Local Telegram Premium (one-tap perks: app icons, local profile color/emoji status, badge, adblock).
+        // Premium Emoji without subscription (keyboard unlock, zero-width chat codec, profile emoji status).
         GGMenuRegistry.register(GGMenuRow(
-            id: "appearance.mediatok.localPremium",
+            id: "appearance.mediatok.premiumEmoji",
             section: mediaTokSection,
             order: 50,
-            title: { "⭐ Локальный Telegram Premium" },
-            subtitle: { "Значок, иконки приложения, цвет профиля и эмодзи-статус, антиреклама" },
+            title: { "✨ Премиум Эмодзи" },
+            subtitle: { "Разблокировка всех паков в клавиатуре, отправка в чатах и эмодзи-статус" },
             kind: .action({ context in
-                GGMediaTokWave5Tools.presentLocalPremiumSheet(context: context)
+                GGMediaTokWave5Tools.presentPremiumEmojiSheet(context: context)
             }),
-            searchKeywords: { ["premium", "премиум", "локальный", "иконки", "эмодзи", "цвет"] },
-            label: { _ in GGMediaTokWave5Tools.isLocalPremiumEnabled ? "ВКЛ" : "ВЫКЛ" }
+            searchKeywords: { ["emoji", "эмодзи", "премиум", "premium", "статус"] },
+            label: { _ in GGMediaTokWave5Tools.isPremiumEmojiEnabled ? "ВКЛ" : "ВЫКЛ" }
         ))
 
         // Language Studio: 66 public Telegram language packs + Full Language Editor (all strings, LIVE).

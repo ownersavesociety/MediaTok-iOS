@@ -616,27 +616,13 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         let actionButtonKeys: [PeerInfoHeaderButtonKey] = (self.isSettings || self.isMyProfile) ? [] : peerInfoHeaderActionButtons(peer: peer, isSecretChat: isSecretChat, isContact: isContact)
         let buttonKeys: [PeerInfoHeaderButtonKey] = (self.isSettings || self.isMyProfile) ? [] : peerInfoHeaderButtons(peer: peer, cachedData: cachedData, isOpenedFromChat: self.isOpenedFromChat, isExpanded: true, videoCallsEnabled: width > 320.0 && self.videoCallsEnabled, isSecretChat: isSecretChat, isContact: isContact, threadInfo: threadData?.info)
         
-        let localPremiumEnabled = UserDefaults.standard.bool(forKey: "mediatok.local_premium.enabled.v1")
-        let isOwnLocalPremium = localPremiumEnabled && peer?.id == self.context.account.peerId
-        let localProfileColor: PeerNameColor?
-        let localProfileBgEmojiId: Int64?
+        let mtEmojiUnlocked = UserDefaults.standard.object(forKey: "mediatok.premium_emoji.enabled.v1") == nil || UserDefaults.standard.bool(forKey: "mediatok.premium_emoji.enabled.v1")
         let localEmojiStatusFileId: Int64?
-        if isOwnLocalPremium, let peer {
-            let pid = peer.id.toInt64()
-            let defaults = UserDefaults.standard
-            if let rawColor = defaults.object(forKey: "mediatok.local_premium.profile_color.\(pid)") as? Int {
-                localProfileColor = PeerNameColor(rawValue: Int32(rawColor))
-            } else {
-                localProfileColor = nil
-            }
-            localProfileBgEmojiId = (defaults.object(forKey: "mediatok.local_premium.profile_bg_emoji.\(pid)") as? NSNumber)?.int64Value
-            localEmojiStatusFileId = (defaults.object(forKey: "mediatok.local_premium.emoji_status_file.\(pid)") as? NSNumber)?.int64Value
+        if mtEmojiUnlocked, let peer, peer.id == self.context.account.peerId {
+            localEmojiStatusFileId = (UserDefaults.standard.object(forKey: "mediatok.premium_emoji.status_file.\(peer.id.toInt64())") as? NSNumber)?.int64Value
         } else {
-            localProfileColor = nil
-            localProfileBgEmojiId = nil
             localEmojiStatusFileId = nil
         }
-        let effectiveProfileColor: PeerNameColor? = peer?.effectiveProfileColor ?? localProfileColor
 
         let effectiveEmojiStatus: PeerEmojiStatus?
         if let peer, let worn = GGVisualProfileStore.shared.wornStarGift(for: peer.id.ggKey) {
@@ -679,10 +665,6 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                     backgroundDefaultHeight += 60.0
                 }
             }
-            hasBackground = true
-        } else if let localProfileColor {
-            let colors = self.context.peerNameColors.getProfile(localProfileColor, dark: presentationData.theme.overallDarkAppearance)
-            backgroundCoverSubject = .custom(colors.main, colors.secondary ?? colors.main, nil, localProfileBgEmojiId ?? peer?.profileBackgroundEmojiId)
             hasBackground = true
         } else if let peer {
             backgroundCoverSubject = .peer(peer)
@@ -737,7 +719,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                 credibilityIcon = .scam
             } else if (resolvedBadges.allowEmojiStatus || hasLocalEmojiStatus), let emojiStatus = effectiveEmojiStatus {
                 statusIcon = .emojiStatus(emojiStatus)
-            } else if (resolvedBadges.premium || isOwnLocalPremium) && !premiumConfiguration.isPremiumDisabled && (peer.id != self.context.account.peerId || self.isSettings || self.isMyProfile || isOwnLocalPremium || GGVisualProfileStore.shared.badgeMode(for: peer.id.ggKey) == .premium) {
+            } else if resolvedBadges.premium && !premiumConfiguration.isPremiumDisabled && (peer.id != self.context.account.peerId || self.isSettings || self.isMyProfile || GGVisualProfileStore.shared.badgeMode(for: peer.id.ggKey) == .premium) {
                 credibilityIcon = .premium
             } else {
                 credibilityIcon = .none
@@ -770,11 +752,11 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         
         let avatarFrame = CGRect(origin: CGPoint(x: hasStrip ? bandCenteredOrigin(width: avatarSize, margin: 16.0) : floor((width - avatarSize) / 2.0), y: statusBarHeight + 22.0), size: CGSize(width: avatarSize, height: avatarSize))
         
-        let regularNavigationContentsAccentColor: UIColor = (effectiveProfileColor != nil || hasCustomBanner) ? .white : presentationData.theme.list.itemAccentColor
+        let regularNavigationContentsAccentColor: UIColor = (peer?.effectiveProfileColor != nil || hasCustomBanner) ? .white : presentationData.theme.list.itemAccentColor
         let collapsedHeaderNavigationContentsAccentColor = presentationData.theme.list.itemAccentColor
         let expandedAvatarNavigationContentsAccentColor: UIColor = .white
         
-        let regularNavigationContentsPrimaryColor: UIColor = (effectiveProfileColor != nil || hasCustomBanner) ? .white : presentationData.theme.list.itemPrimaryTextColor
+        let regularNavigationContentsPrimaryColor: UIColor = (peer?.effectiveProfileColor != nil || hasCustomBanner) ? .white : presentationData.theme.list.itemPrimaryTextColor
         let collapsedHeaderNavigationContentsPrimaryColor = presentationData.theme.list.itemPrimaryTextColor
         let expandedAvatarNavigationContentsPrimaryColor: UIColor = .white
         
@@ -786,7 +768,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         let collapsedHeaderButtonBackgroundColor: UIColor = .clear
         let expandedAvatarHeaderButtonBackgroundColor: UIColor = UIColor(white: 0.0, alpha: 0.5)
         
-        let regularContentButtonForegroundColor: UIColor = (effectiveProfileColor != nil || hasCustomBanner) ? UIColor.white : presentationData.theme.list.itemAccentColor
+        let regularContentButtonForegroundColor: UIColor = (peer?.effectiveProfileColor != nil || hasCustomBanner) ? UIColor.white : presentationData.theme.list.itemAccentColor
         let collapsedHeaderContentButtonForegroundColor = presentationData.theme.list.itemAccentColor
         let expandedAvatarContentButtonForegroundColor: UIColor = .white
         
@@ -808,7 +790,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             regularHeaderButtonBackgroundColor = baseButtonBackgroundColor.blendOver(background: secondaryColor.mixedWith(mainColor, alpha: 0.1))
             
             hasCoverColor = true
-        } else if let profileColor = effectiveProfileColor {
+        } else if let profileColor = peer?.effectiveProfileColor {
             let backgroundColors = self.context.peerNameColors.getProfile(profileColor, dark: presentationData.theme.overallDarkAppearance)
             regularNavigationContentsSecondaryColor = UIColor(white: 1.0, alpha: 0.6).blitOver(backgroundColors.main.withMultiplied(hue: 1.0, saturation: 2.2, brightness: 1.5), alpha: 1.0)
             

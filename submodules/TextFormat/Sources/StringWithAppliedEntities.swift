@@ -542,8 +542,126 @@ public func stringWithAppliedEntities(_ text: String, entities: [MessageTextEnti
         paragraphStyle.alignment = paragraphAlignment
         string.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSMakeRange(0, string.length))
     }
+
+    ggApplyEncodedPremiumEmojis(to: string, message: message, entityFiles: entityFiles)
     
     return string
+}
+
+// MARK: - MediaTok Premium Emoji Zero-Width Codec
+
+private let mtPremiumEmojiPrefix: String = "\u{2063}\u{2062}"
+private let mtPremiumEmojiSuffix: unichar = 0x2063
+private let mtPremiumEmojiDigits: [unichar] = [0x200B, 0x200C, 0x200D, 0x2060]
+private let mtPremiumEmojiTagLength: Int = 35 // 2 prefix + 32 base-4 digits + 1 suffix
+
+public func ggIsPremiumEmojiUnlocked() -> Bool {
+    let key = "mediatok.premium_emoji.enabled.v1"
+    if UserDefaults.standard.object(forKey: key) == nil {
+        return true
+    }
+    return UserDefaults.standard.bool(forKey: key)
+}
+
+private func mtEncodePremiumEmojiTag(fileId: Int64) -> String {
+    var units: [unichar] = [0x2063, 0x2062]
+    units.reserveCapacity(mtPremiumEmojiTagLength)
+    let bits = UInt64(bitPattern: fileId)
+    for i in stride(from: 62, through: 0, by: -2) {
+        let digit = Int((bits >> UInt64(i)) & 0x3)
+        units.append(mtPremiumEmojiDigits[digit])
+    }
+    units.append(mtPremiumEmojiSuffix)
+    return String(utf16CodeUnits: units, count: units.count)
+}
+
+private func mtDecodePremiumEmojiTag(_ nsString: NSString, at location: Int) -> Int64? {
+    guard location >= 0, location + mtPremiumEmojiTagLength <= nsString.length else {
+        return nil
+    }
+    guard nsString.character(at: location) == 0x2063,
+          nsString.character(at: location + 1) == 0x2062,
+          nsString.character(at: location + mtPremiumEmojiTagLength - 1) == mtPremiumEmojiSuffix else {
+        return nil
+    }
+    var bits: UInt64 = 0
+    for idx in 0 ..< 32 {
+        let ch = nsString.character(at: location + 2 + idx)
+        let digit: UInt64
+        switch ch {
+        case 0x200B: digit = 0
+        case 0x200C: digit = 1
+        case 0x200D: digit = 2
+        case 0x2060: digit = 3
+        default:
+            return nil
+        }
+        bits = (bits << 2) | digit
+    }
+    let decoded = Int64(bitPattern: bits)
+    return decoded != 0 ? decoded : nil
+}
+
+public func ggEncodePremiumEmojiInInputText(_ input: NSAttributedString) -> NSAttributedString {
+    var targets: [(range: NSRange, fileId: Int64)] = []
+    input.enumerateAttribute(ChatTextInputAttributes.customEmoji, in: NSRange(location: 0, length: input.length), options: []) { value, range, _ in
+        if let attr = value as? ChatTextInputTextCustomEmojiAttribute, attr.fileId != 0, range.length > 0 {
+            targets.append((range, attr.fileId))
+        }
+    }
+    guard !targets.isEmpty else {
+        return input
+    }
+    let mutable = NSMutableAttributedString(attributedString: input)
+    for target in targets.reversed() {
+        let tag = mtEncodePremiumEmojiTag(fileId: target.fileId)
+        let insertIndex = min(target.range.upperBound, mutable.length)
+        var attrs: [NSAttributedString.Key: Any] = [:]
+        if target.range.location < mutable.length {
+            attrs = mutable.attributes(at: target.range.location, effectiveRange: nil)
+            attrs.removeValue(forKey: ChatTextInputAttributes.customEmoji)
+        }
+        mutable.insert(NSAttributedString(string: tag, attributes: attrs), at: insertIndex)
+    }
+    return mutable
+}
+
+private func ggApplyEncodedPremiumEmojis(to string: NSMutableAttributedString, message: EngineRawMessage?, entityFiles: [EngineMedia.Id: TelegramMediaFile]) {
+    guard string.length >= mtPremiumEmojiTagLength,
+          string.string.contains(mtPremiumEmojiPrefix) else {
+        return
+    }
+    let unlocked = ggIsPremiumEmojiUnlocked()
+    var searchEnd = string.length
+    while searchEnd >= mtPremiumEmojiTagLength {
+        let ns = string.string as NSString
+        let found = ns.range(of: mtPremiumEmojiPrefix, options: .backwards, range: NSRange(location: 0, length: searchEnd))
+        if found.location == NSNotFound {
+            break
+        }
+        if let fileId = mtDecodePremiumEmojiTag(ns, at: found.location) {
+            let tagRange = NSRange(location: found.location, length: mtPremiumEmojiTagLength)
+            string.deleteCharacters(in: tagRange)
+            if unlocked && found.location > 0 && found.location <= string.length {
+                let updatedNs = string.string as NSString
+                let emojiRange = updatedNs.rangeOfComposedCharacterSequence(at: found.location - 1)
+                if emojiRange.location != NSNotFound && emojiRange.length > 0 && emojiRange.upperBound <= string.length {
+                    if string.attribute(ChatTextInputAttributes.customEmoji, at: emojiRange.location, effectiveRange: nil) == nil {
+                        let mediaId = EngineMedia.Id(namespace: Namespaces.Media.CloudFile, id: fileId)
+                        let emojiFile = (message?.associatedMedia[mediaId] as? TelegramMediaFile) ?? entityFiles[mediaId]
+                        string.addAttribute(
+                            ChatTextInputAttributes.customEmoji,
+                            value: ChatTextInputTextCustomEmojiAttribute(interactivelySelectedFromPackId: nil, fileId: fileId, file: emojiFile),
+                            range: emojiRange
+                        )
+                    }
+                }
+            }
+            searchEnd = found.location
+        } else {
+            searchEnd = found.location
+        }
+    }
 }
 
 public final class MessageSyntaxHighlight: Codable, Equatable {

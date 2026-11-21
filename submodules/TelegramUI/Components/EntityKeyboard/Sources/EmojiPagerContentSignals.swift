@@ -1376,7 +1376,8 @@ public extension EmojiPagerContentComponent {
                         tintMode: tintMode
                     )
                     
-                    let isPremiumLocked: Bool = item.file.isPremiumEmoji && !hasPremium
+                    let mtEmojiUnlocked = UserDefaults.standard.object(forKey: "mediatok.premium_emoji.enabled.v1") == nil || UserDefaults.standard.bool(forKey: "mediatok.premium_emoji.enabled.v1")
+                    let isPremiumLocked: Bool = item.file.isPremiumEmoji && !hasPremium && !mtEmojiUnlocked
                     if isPremiumLocked && isPremiumDisabled {
                         continue
                     }
@@ -1467,7 +1468,8 @@ public extension EmojiPagerContentComponent {
                                 tintMode: tintMode
                             )
                             
-                            let isPremiumLocked: Bool = item.file.isPremiumEmoji && !hasPremium
+                            let mtEmojiUnlocked = UserDefaults.standard.object(forKey: "mediatok.premium_emoji.enabled.v1") == nil || UserDefaults.standard.bool(forKey: "mediatok.premium_emoji.enabled.v1")
+                    let isPremiumLocked: Bool = item.file.isPremiumEmoji && !hasPremium && !mtEmojiUnlocked
                             if isPremiumLocked && isPremiumDisabled {
                                 continue
                             }

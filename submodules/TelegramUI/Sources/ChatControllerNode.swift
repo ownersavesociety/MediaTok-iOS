@@ -5177,7 +5177,7 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
                             }
                         }
                         
-                        if file.isPremiumEmoji && !self.chatPresentationInterfaceState.isPremium && self.chatPresentationInterfaceState.chatLocation.peerId != self.context.account.peerId && !isPeerSpecific {
+                        if file.isPremiumEmoji && !self.chatPresentationInterfaceState.isPremium && !ggIsPremiumEmojiUnlocked() && self.chatPresentationInterfaceState.chatLocation.peerId != self.context.account.peerId && !isPeerSpecific {
                             if firstLockedPremiumEmoji == nil {
                                 firstLockedPremiumEmoji = file
                             }
@@ -5336,7 +5336,13 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
                     }
                     // Markdown conversion, trim, the 4096 split and each piece's entities:
                     // `chatComposerTextMessages` (TextFormat), shared with the composer harness's send-path oracle.
-                    let textMessages = chatComposerTextMessages(effectiveInputText: effectiveInputText, businessLinkSetup: isBusinessLinkSetup)
+                    let preparedInputText: NSAttributedString
+                    if ggIsPremiumEmojiUnlocked() && !self.chatPresentationInterfaceState.isPremium && self.chatPresentationInterfaceState.chatLocation.peerId != self.context.account.peerId {
+                        preparedInputText = ggEncodePremiumEmojiInInputText(effectiveInputText)
+                    } else {
+                        preparedInputText = effectiveInputText
+                    }
+                    let textMessages = chatComposerTextMessages(effectiveInputText: preparedInputText, businessLinkSetup: isBusinessLinkSetup)
                     for (text, entities) in textMessages.pieces {
                         do {
                             var attributes: [MessageAttribute] = []
