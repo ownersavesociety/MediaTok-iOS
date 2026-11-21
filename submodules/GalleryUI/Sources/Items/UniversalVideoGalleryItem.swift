@@ -3405,11 +3405,47 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
         let speedList: [(String, String, Double)] = [
             ("0.5x", "0.5x", 0.5),
             (strings.PlaybackSpeed_Normal, "1x", 1.0),
-            ("1.5x", "1.5x", 1.5),
             ("2x", "2x", 2.0)
         ]
 
         return speedList
+    }
+
+    private func presentCustomPlaybackRateAlert(currentRate: Double) {
+        let alert = UIAlertController(
+            title: "Скорость видео (∞)",
+            message: "Введите любую скорость (например 3, 5, 10, 25, 100):",
+            preferredStyle: .alert
+        )
+        alert.addTextField { tf in
+            tf.keyboardType = .decimalPad
+            tf.placeholder = "3.0"
+            tf.text = String(format: "%.1f", currentRate)
+        }
+        alert.addAction(UIAlertAction(title: self.presentationData.strings.Common_Cancel, style: .cancel))
+        alert.addAction(UIAlertAction(title: self.presentationData.strings.Common_OK, style: .default) { [weak self, weak alert] _ in
+            guard let self, let videoNode = self.videoNode else {
+                return
+            }
+            let raw = (alert?.textFields?.first?.text ?? "")
+                .replacingOccurrences(of: ",", with: ".")
+                .replacingOccurrences(of: "x", with: "")
+                .replacingOccurrences(of: "х", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let parsed = Double(raw), parsed.isFinite, parsed > 0.0 else {
+                return
+            }
+            let rate = max(0.1, round(parsed * 10.0) / 10.0)
+            videoNode.setBaseRate(rate)
+            if let controller = self.galleryController() as? GalleryController {
+                controller.updateSharedPlaybackRate(rate)
+            }
+        })
+        var top: UIViewController? = self.galleryController()?.view.window?.rootViewController ?? self.galleryController()
+        while let next = top?.presentedViewController, !next.isBeingDismissed {
+            top = next
+        }
+        top?.present(alert, animated: true)
     }
     
     private func presentPremiumDemo() {
@@ -3569,7 +3605,7 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
             
             if isSettings {
                 let sliderValuePromise = ValuePromise<Double?>(nil)
-                topItems.append(.custom(SliderContextItem(title: strongSelf.presentationData.strings.Gallery_VideoSettings_SpeedControlTitle, minValue: 0.2, maxValue: 2.5, value: status.baseRate, valueChanged: { [weak self] newValue, _ in
+                topItems.append(.custom(SliderContextItem(title: strongSelf.presentationData.strings.Gallery_VideoSettings_SpeedControlTitle, minValue: 0.2, maxValue: 10.0, value: status.baseRate, valueChanged: { [weak self] newValue, _ in
                     guard let strongSelf = self, let videoNode = strongSelf.videoNode else {
                         return
                     }
@@ -3581,7 +3617,26 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
                     sliderValuePromise.set(newValue)
                 }), true))
                 
+                let customRateTitle = status.baseRate > 2.05
+                    ? String(format: "Своя: %.1fx (∞)…", status.baseRate)
+                    : "Своя скорость (∞)…"
+                let isCustomRateSelected = status.baseRate > 2.05
+                let customRateItem: ContextMenuItem = .action(ContextMenuActionItem(text: customRateTitle, icon: { _ in return nil }, iconSource: ContextMenuActionItemIconSource(size: CGSize(width: 24.0, height: 24.0), signal: sliderValuePromise.get()
+                |> map { value in
+                    if isCustomRateSelected && value == nil {
+                        return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Check"), color: .white)
+                    } else {
+                        return UIImage()
+                    }
+                }), action: { [weak self] _, f in
+                    f(.default)
+                    Queue.mainQueue().after(0.15) {
+                        self?.presentCustomPlaybackRateAlert(currentRate: status.baseRate)
+                    }
+                }))
+
                 if let videoQualityState, !videoQualityState.available.isEmpty {
+                    items.append(customRateItem)
                 } else {
                     items.append(.custom(SectionTitleContextItem(text: strongSelf.presentationData.strings.Gallery_VideoSettings_SpeedSectionTitle), false))
                     for (text, _, rate) in strongSelf.speedList(strings: strongSelf.presentationData.strings) {
@@ -3606,6 +3661,7 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
                             }
                         })))
                     }
+                    items.append(customRateItem)
                 }
                 
                 if let videoQualityState, !videoQualityState.available.isEmpty {
@@ -3950,11 +4006,11 @@ final class UniversalVideoGalleryItemNode: ZoomableContentGalleryItemNode {
                         }
                     })))
                 }
-            }
 
-            // GHOST: features add gallery menu items (GGGalleryHooks.menuItems)
-            let ggMessage = strongSelf.contentInfo()?.message
-            items = GGGalleryHooks.appendMenuItems(items, context: strongSelf.context, message: ggMessage, kind: .video, isCopyProtected: (ggMessage?.isCopyProtected() ?? false) || item.peerIsCopyProtected || ggMessage?.paidContent != nil) // GHOST: + whether the media is protected, as for «Save»
+                // GHOST: features add gallery menu items ONLY to the «…» menu (!isSettings), never to the video Settings gear popup
+                let ggMessage = strongSelf.contentInfo()?.message
+                items = GGGalleryHooks.appendMenuItems(items, context: strongSelf.context, message: ggMessage, kind: .video, isCopyProtected: (ggMessage?.isCopyProtected() ?? false) || item.peerIsCopyProtected || ggMessage?.paidContent != nil) // GHOST: + whether the media is protected, as for «Save»
+            }
             return (items, topItems)
         }
     }

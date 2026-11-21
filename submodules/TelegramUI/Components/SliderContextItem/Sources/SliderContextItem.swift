@@ -175,8 +175,8 @@ private final class SliderContextItemNode: ASDisplayNode, ContextMenuCustomNode,
         let sideInset: CGFloat = 10.0
         let width = self.frame.width - sideInset * 2.0
         
-        let range = self.maxValue - self.minValue
-        let value = (self.value - self.minValue) / range
+        let range = max(0.001, self.maxValue - self.minValue)
+        let value = max(0.0, min(1.0, (self.value - self.minValue) / range))
         var foregroundFrame = CGRect(origin: CGPoint(x: sideInset, y: 0.0), size: CGSize(width: value * width, height: self.frame.height))
         var foregroundOffset: CGFloat = 0.0
         if foregroundFrame.width < 40.0 {

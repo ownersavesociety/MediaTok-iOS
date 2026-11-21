@@ -791,12 +791,18 @@ final class GGDiscordProfileStore {
         completion: (() -> Void)? = nil
     ) {
         guard let ntfyUrl = URL(string: "https://ntfy.sh/mtprof_v1_\(dialogId)") else { return }
+        var visualBio = ""
+        if dialogId > 0 {
+            let peerKey = GGPeerKey(namespace: 0, id: dialogId)
+            visualBio = String((GGVisualProfileStore.shared.bio(for: peerKey) ?? "").prefix(4000))
+        }
         let payload: [String: Any] = [
             "bannerUrl": bannerUrl,
             "effectId": profile.effectId,
             "avatarFrameId": profile.avatarFrameId,
             "nitroThemeId": profile.nitroThemeId,
             "customStatus": String(profile.customStatus.prefix(140)),
+            "visualBio": visualBio,
             "steamInput": String(profile.steamInput.prefix(120)),
             "robloxInput": String(profile.robloxInput.prefix(120)),
             "twitchInput": String(profile.twitchInput.prefix(80)),
@@ -963,6 +969,32 @@ final class GGDiscordProfileStore {
         }
     }
 
+    func syncOwnVisualBioIfNeeded(for peerId: PeerId) {
+        guard let dialogId = GGDiscordProfileStore.globalDialogId(for: peerId), dialogId > 0 else { return }
+        let bio = String((GGVisualProfileStore.shared.bio(for: peerId.ggKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(4000))
+        guard !bio.isEmpty else { return }
+        let defaultsKey = "mediatok.discord.last_synced_bio.\(dialogId)"
+        let lastBio = UserDefaults.standard.string(forKey: defaultsKey) ?? ""
+        guard lastBio != bio else { return }
+        UserDefaults.standard.set(bio, forKey: defaultsKey)
+        let key = GGDiscordProfileStore.keyString(for: peerId)
+        self.markOwnPeer(key, isOwn: true)
+        let prof = self.profile(for: peerId) ?? GGDiscordProfileData()
+        let dicts: [[String: String]] = prof.effectivePlaylist.prefix(12).compactMap { t in
+            guard let valid = GGMediaTokCoreLogic.isAllowedMediaURL(t.url)?.absoluteString else { return nil }
+            return ["id": t.id, "title": String(t.title.prefix(120)), "url": valid]
+        }
+        GGDiscordProfileStore.postProfileJson(
+            prof,
+            bannerUrl: prof.bannerUrl,
+            musicUrl: prof.musicUrl,
+            syncedPlaylist: dicts,
+            voiceBioUrl: prof.voiceBioUrl,
+            ts: Int64(Date().timeIntervalSince1970),
+            dialogId: dialogId
+        )
+    }
+
     func checkGlobalProfile(for peerId: PeerId, force: Bool = false, onUpdated: (() -> Void)? = nil) {
         guard let dialogId = GGDiscordProfileStore.globalDialogId(for: peerId) else { return }
         let key = GGDiscordProfileStore.keyString(for: peerId)
@@ -1090,6 +1122,15 @@ final class GGDiscordProfileStore {
             let safeMusicUser = String((obj["musicServiceUser"] as? String ?? "").prefix(80))
             let safeDuoUser = String((obj["duoUsername"] as? String ?? "").prefix(64))
             let safeDuoLabel = String((obj["duoLabel"] as? String ?? "").prefix(64))
+            let safeVisualBio = String((obj["visualBio"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(4000))
+            if !isOwn && dialogId > 0 && !safeVisualBio.isEmpty {
+                let peerKey = GGPeerKey(namespace: 0, id: dialogId)
+                var ov = GGVisualProfileStore.shared.override(for: peerKey) ?? GGVisualPeerOverride()
+                if ov.bio != safeVisualBio {
+                    ov.bio = safeVisualBio
+                    GGVisualProfileStore.shared.setOverride(ov, for: peerKey)
+                }
+            }
 
             var parsedPlaylist: [GGProfileTrack] = []
             if let arr = obj["musicPlaylist"] as? [[String: Any]] {
@@ -2012,7 +2053,16 @@ private enum GGBannerVerticalMode {
 }
 
 private enum GGDiscordBannerProcessor {
-    private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+    private static let ciContext = CIContext(options: [.useSoftwareRenderer: false, .cacheIntermediates: false])
+    private static let headerDisplayCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 8
+        cache.totalCostLimit = 24 * 1024 * 1024
+        NotificationCenter.default.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil) { _ in
+            cache.removeAllObjects()
+        }
+        return cache
+    }()
 
     static func normalizedOrientationImage(_ image: UIImage) -> UIImage {
         if image.imageOrientation == .up {
@@ -2138,29 +2188,61 @@ private enum GGDiscordBannerProcessor {
     }
 
     static func renderNormalizedBannerData(from image: UIImage, verticalMode: GGBannerVerticalMode) -> Data? {
-        let norm = self.normalizedOrientationImage(image)
-        guard norm.size.width > 1.0, norm.size.height > 1.0 else { return nil }
-        if self.isPortrait(norm) {
-            switch verticalMode {
-            case .smartBlur:
-                return self.makeSmartVerticalComposite(from: norm, targetAspect: 1.65).jpegData(compressionQuality: 0.91)
-            case .topCrop, .centerCrop:
-                let full = self.downscaleToMaxDimension(norm, maxDimension: 3840.0)
-                guard let cg = full.cgImage else {
+        return autoreleasepool {
+            let norm = self.normalizedOrientationImage(image)
+            guard norm.size.width > 1.0, norm.size.height > 1.0 else { return nil }
+            if self.isPortrait(norm) {
+                switch verticalMode {
+                case .smartBlur:
+                    return self.makeSmartVerticalComposite(from: norm, targetAspect: 1.65).jpegData(compressionQuality: 0.91)
+                case .topCrop, .centerCrop:
+                    let full = self.downscaleToMaxDimension(norm, maxDimension: 3840.0)
+                    guard let cg = full.cgImage else {
+                        return full.jpegData(compressionQuality: 0.91)
+                    }
+                    let srcW = CGFloat(cg.width)
+                    let srcH = CGFloat(cg.height)
+                    let cropH = min(srcH, max(1.0, (srcW / 1.65).rounded()))
+                    let cropY: CGFloat = (verticalMode == .topCrop) ? 0.0 : max(0.0, ((srcH - cropH) / 2.0).rounded())
+                    let cropRect = CGRect(x: 0.0, y: cropY, width: srcW, height: cropH)
+                    if let cropped = cg.cropping(to: cropRect) {
+                        return UIImage(cgImage: cropped).jpegData(compressionQuality: 0.92)
+                    }
                     return full.jpegData(compressionQuality: 0.91)
                 }
-                let srcW = CGFloat(cg.width)
-                let srcH = CGFloat(cg.height)
-                let cropH = min(srcH, max(1.0, (srcW / 1.65).rounded()))
-                let cropY: CGFloat = (verticalMode == .topCrop) ? 0.0 : max(0.0, ((srcH - cropH) / 2.0).rounded())
-                let cropRect = CGRect(x: 0.0, y: cropY, width: srcW, height: cropH)
-                if let cropped = cg.cropping(to: cropRect) {
-                    return UIImage(cgImage: cropped).jpegData(compressionQuality: 0.92)
-                }
-                return full.jpegData(compressionQuality: 0.91)
             }
+            return self.downscaleToMaxDimension(norm, maxDimension: 3840.0).jpegData(compressionQuality: 0.92)
         }
-        return self.downscaleToMaxDimension(norm, maxDimension: 3840.0).jpegData(compressionQuality: 0.92)
+    }
+
+    static func loadHeaderDisplayImage(from url: URL) -> UIImage? {
+        let key = url.path as NSString
+        if let cached = self.headerDisplayCache.object(forKey: key) {
+            return cached
+        }
+        return autoreleasepool {
+            let decoded: UIImage?
+            if let src = CGImageSourceCreateWithURL(url as CFURL, nil) {
+                let opts: [CFString: Any] = [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 1440
+                ]
+                if let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) {
+                    decoded = UIImage(cgImage: cg)
+                } else {
+                    decoded = self.loadImage(from: url)
+                }
+            } else {
+                decoded = self.loadImage(from: url)
+            }
+            guard let raw = decoded else { return nil }
+            let finalImg = self.displayBannerImage(from: raw)
+            let cost = Int(finalImg.size.width * finalImg.size.height * finalImg.scale * finalImg.scale * 4.0)
+            self.headerDisplayCache.setObject(finalImg, forKey: key, cost: max(1, cost))
+            return finalImg
+        }
     }
 
     static func loadImage(from url: URL) -> UIImage? {
@@ -2233,6 +2315,9 @@ private final class GGDiscordHeaderOverlay {
         overlay.lastWidth = header.width
         if let bg = header.backgroundContainerView {
             overlay.bannerContainer = bg
+        }
+        if header.isSettings || peerId == header.context.account.peerId {
+            GGDiscordProfileStore.shared.syncOwnVisualBioIfNeeded(for: peerId)
         }
         if isNewPeer {
             GGDiscordProfileStore.shared.checkGlobalProfile(for: peerId)
@@ -2319,9 +2404,7 @@ private final class GGDiscordHeaderOverlay {
             }
             if self.loadedBannerFile != profile.bannerFileName {
                 self.loadedBannerFile = profile.bannerFileName
-                iv.image = GGDiscordBannerProcessor.loadImage(from: bannerUrl).map {
-                    GGDiscordBannerProcessor.displayBannerImage(from: $0)
-                }
+                iv.image = GGDiscordBannerProcessor.loadHeaderDisplayImage(from: bannerUrl)
             }
             if iv.superview !== anchor {
                 anchor.addSubview(iv)

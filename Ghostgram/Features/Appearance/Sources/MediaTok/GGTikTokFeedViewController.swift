@@ -85,6 +85,17 @@ public final class GGTikTokFeedViewController: UIViewController {
         self.player?.pause()
     }
 
+    public override func didReceiveMemoryWarning() {
+        super.didReceiveMemoryWarning()
+        if self.view.window == nil {
+            self.player?.pause()
+            self.player?.replaceCurrentItem(with: nil)
+            self.playerLayer?.removeFromSuperlayer()
+            self.player = nil
+            self.playerLayer = nil
+        }
+    }
+
     private func setupUI() {
         self.videoContainer.translatesAutoresizingMaskIntoConstraints = false
         self.videoContainer.backgroundColor = .black
@@ -345,6 +356,7 @@ public final class GGTikTokFeedViewController: UIViewController {
             self.endObserver = nil
         }
         self.player?.pause()
+        self.player?.replaceCurrentItem(with: nil)
         self.playerLayer?.removeFromSuperlayer()
         self.player = nil
         self.playerLayer = nil

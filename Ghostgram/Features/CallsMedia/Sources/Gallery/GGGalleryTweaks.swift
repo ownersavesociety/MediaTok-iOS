@@ -29,7 +29,7 @@ enum GGGalleryTweaks {
                     return [item]
                 }
             case .video:
-                if GGCallsMediaSettings.airPlayItem.value, let item = GGGalleryTweaks.airPlayItem(context: menuContext.context, message: message) {
+                if false, GGCallsMediaSettings.airPlayItem.value, let item = GGGalleryTweaks.airPlayItem(context: menuContext.context, message: message) {
                     return [item]
                 }
             }
