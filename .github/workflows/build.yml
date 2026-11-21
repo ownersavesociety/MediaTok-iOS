@@ -208,9 +208,19 @@ jobs:
           test -f "$BIN_PATH"
           lipo -info "$BIN_PATH" | grep -q "arm64"
           BIN_SIZE=$(stat -f%z "$BIN_PATH")
-          test "$BIN_SIZE" -gt 10485760
+          test "$BIN_SIZE" -gt 65536
+          UI_FW="$APP_PATH/Frameworks/TelegramUIFramework.framework/TelegramUIFramework"
+          CORE_FW="$APP_PATH/Frameworks/TelegramCoreFramework.framework/TelegramCoreFramework"
+          test -f "$UI_FW"
+          test -f "$CORE_FW"
+          lipo -info "$UI_FW" | grep -q "arm64"
+          lipo -info "$CORE_FW" | grep -q "arm64"
+          UI_FW_SIZE=$(stat -f%z "$UI_FW")
+          CORE_FW_SIZE=$(stat -f%z "$CORE_FW")
+          test "$UI_FW_SIZE" -gt 52428800
+          test "$CORE_FW_SIZE" -gt 5242880
           FONT_COUNT=$(find "$APP_PATH" -name "mt_*.ttf" | wc -l | tr -d ' ')
-          echo "Verified app=$(basename "$APP_PATH") binSize=$BIN_SIZE fonts=$FONT_COUNT"
+          echo "Verified app=$(basename "$APP_PATH") binSize=$BIN_SIZE uiFwSize=$UI_FW_SIZE coreFwSize=$CORE_FW_SIZE fonts=$FONT_COUNT"
           test "$FONT_COUNT" -ge 80
           rm -rf /tmp/ipa_verify
 
