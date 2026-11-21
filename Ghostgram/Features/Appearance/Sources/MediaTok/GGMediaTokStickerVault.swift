@@ -569,7 +569,9 @@ enum GGMediaTokStickerVault {
     static func presentManagerFromMenu(context: GGMenuContext) {
         GGDiscordProfileStore.shared.activeAccountPeerId = context.context.account.peerId
         let vc = GGStickerVaultPickerViewController(accountContext: context.context, targetPeerId: nil, initialQuery: "")
+        vc.overrideUserInterfaceStyle = .dark
         let nav = UINavigationController(rootViewController: vc)
+        nav.overrideUserInterfaceStyle = .dark
         nav.modalPresentationStyle = .pageSheet
         context.presentNative(nav)
     }
@@ -578,7 +580,9 @@ enum GGMediaTokStickerVault {
         GGDiscordProfileStore.shared.activeAccountPeerId = context.account.peerId
         DispatchQueue.main.async {
             let vc = GGStickerVaultPickerViewController(accountContext: context, targetPeerId: targetPeerId, initialQuery: initialQuery)
+            vc.overrideUserInterfaceStyle = .dark
             let nav = UINavigationController(rootViewController: vc)
+            nav.overrideUserInterfaceStyle = .dark
             nav.modalPresentationStyle = .pageSheet
             let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             guard let root = scenes.flatMap({ $0.windows }).first(where: { $0.isKeyWindow })?.rootViewController else {
@@ -690,6 +694,7 @@ private final class GGStickerVaultPickerViewController: UIViewController,
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        self.overrideUserInterfaceStyle = .dark
         self.view.backgroundColor = .systemGroupedBackground
         self.navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(self.closeTapped))
 
@@ -919,15 +924,17 @@ private final class GGStickerVaultPickerViewController: UIViewController,
         let group = DispatchGroup()
         for url in urls {
             group.enter()
-            let data = try? Data(contentsOf: url)
-            let name = url.lastPathComponent
-            try? FileManager.default.removeItem(at: url)
-            if let data {
-                GGStickerVaultStore.shared.addSticker(rawData: data, suggestedName: name, runGeminiIfConfigured: true) { _ in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let data = try? Data(contentsOf: url)
+                let name = url.lastPathComponent
+                try? FileManager.default.removeItem(at: url)
+                if let data {
+                    GGStickerVaultStore.shared.addSticker(rawData: data, suggestedName: name, runGeminiIfConfigured: true) { _ in
+                        group.leave()
+                    }
+                } else {
                     group.leave()
                 }
-            } else {
-                group.leave()
             }
         }
         group.notify(queue: .main) { [weak self] in
@@ -1304,6 +1311,7 @@ private final class GGMediaTokLanUploaderViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        self.overrideUserInterfaceStyle = .dark
         self.title = "Wi-Fi Загрузка с ПК"
         self.view.backgroundColor = .systemGroupedBackground
 

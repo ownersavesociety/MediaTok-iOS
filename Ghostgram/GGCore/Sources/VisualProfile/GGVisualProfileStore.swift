@@ -276,6 +276,7 @@ public final class GGVisualProfileStore {
                     self.fileIdToVideoPath.removeValue(forKey: oldVideoId)
                 }
                 self.removeAvatarFilesLocked(for: peerKey, keepingFileName: nil, keepingVideoName: nil)
+                GGVisualProfileStore.clearOwn4kTracking(for: keyStr)
                 self.entries.removeValue(forKey: keyStr)
             } else {
                 var normalized = override
@@ -301,6 +302,9 @@ public final class GGVisualProfileStore {
                         self.fileIdToVideoPath.removeValue(forKey: oldVideoId)
                     }
                     self.removeAvatarFilesLocked(for: peerKey, keepingFileName: nil, keepingVideoName: nil)
+                }
+                if normalized.avatarFileName.isEmpty {
+                    GGVisualProfileStore.clearOwn4kTracking(for: keyStr)
                 }
                 if let existing, normalized.avatarFileId != 0, normalized.avatarFileId == existing.avatarFileId, normalized.remoteUpdatedAt < existing.remoteUpdatedAt {
                     normalized.remotePhotoUrl = existing.remotePhotoUrl
@@ -412,6 +416,7 @@ public final class GGVisualProfileStore {
                 self.fileIdToVideoPath.removeValue(forKey: cur.avatarVideoFileId)
             }
             self.removeAvatarFilesLocked(for: peerKey, keepingFileName: nil, keepingVideoName: nil)
+            GGVisualProfileStore.clearOwn4kTracking(for: keyStr)
             cur.avatarFileName = ""
             cur.avatarWidth = 0
             cur.avatarHeight = 0
@@ -539,6 +544,17 @@ public final class GGVisualProfileStore {
 
     private static let own4kPeersDefaultsKey = "mediatok.4k.own_peers.v1"
     private static let own4kHeartbeatDefaultsKey = "mediatok.4k.heartbeat.v1"
+
+    private static func clearOwn4kTracking(for keyStr: String) {
+        var ownSet = Set(UserDefaults.standard.stringArray(forKey: GGVisualProfileStore.own4kPeersDefaultsKey) ?? [])
+        if ownSet.remove(keyStr) != nil {
+            UserDefaults.standard.set(Array(ownSet), forKey: GGVisualProfileStore.own4kPeersDefaultsKey)
+        }
+        var hb = (UserDefaults.standard.dictionary(forKey: GGVisualProfileStore.own4kHeartbeatDefaultsKey) as? [String: Double]) ?? [:]
+        if hb.removeValue(forKey: keyStr) != nil {
+            UserDefaults.standard.set(hb, forKey: GGVisualProfileStore.own4kHeartbeatDefaultsKey)
+        }
+    }
 
     private static func globalDialogId(for peerKey: GGPeerKey) -> Int64? {
         switch peerKey.namespace {

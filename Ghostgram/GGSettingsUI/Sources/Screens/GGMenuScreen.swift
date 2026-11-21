@@ -455,14 +455,14 @@ private func ggBuildMenuEntries(screen: GGMenuScreenID, tab: GGMenuTabDescriptor
     var result = GGMenuBuildResult()
     switch screen {
     case .root:
-        ggBuildRootEntries(menuContext: menuContext, state: state, result: &result)
+        ggBuildRootEntries(menuContext: menuContext, state: state, token: token, result: &result)
     case .category, .tab:
         ggBuildSectionEntries(screen: screen, tab: tab, menuContext: menuContext, state: state, dynamicRows: dynamicRows, token: token, result: &result)
     }
     return result
 }
 
-private func ggBuildRootEntries(menuContext: GGMenuContext, state: GGMenuScreenState, result: inout GGMenuBuildResult) {
+private func ggBuildRootEntries(menuContext: GGMenuContext, state: GGMenuScreenState, token: Int, result: inout GGMenuBuildResult) {
     // «Версия 13.0 (186)»: the build number follows the version, as on the About screen.
     result.entries.append(GGMenuEntry(id: .header, key: GGMenuSortKey(section: 0, rank: 1, order: 0, tie: ""), section: 0, payload: .header(title: GGStrings.Menu.title, version: GGStrings.Menu.Root.version(version: ggAppVersionString())), menuContext: menuContext))
     result.entries.append(GGMenuEntry(id: .search, key: GGMenuSortKey(section: 1, rank: 1, order: 0, tie: ""), section: 1, payload: .search(text: state.query, placeholder: GGStrings.Menu.Root.searchPlaceholder), menuContext: menuContext))
@@ -481,23 +481,57 @@ private func ggBuildRootEntries(menuContext: GGMenuContext, state: GGMenuScreenS
         return
     }
 
+    let storage = GGMenuStorage.shared
+    var nextSection = 2
+    for section in storage.sections(for: .root) {
+        if let isVisible = section.isVisible, !isVisible(menuContext) {
+            continue
+        }
+        var rowContext = menuContext
+        rowContext.sectionId = ItemListSectionId(nextSection)
+        var rowEntries: [GGMenuEntry] = []
+        var sectionBindings: [GGMenuAnyBinding] = []
+        for row in storage.rows(in: section.id) {
+            if !ggMenuRowIsVisible(row, menuContext: rowContext) {
+                continue
+            }
+            let payload = ggMenuRowPayload(row: row, menuContext: rowContext, state: state, token: token)
+            rowEntries.append(GGMenuEntry(id: .row(row.id), key: GGMenuSortKey(section: nextSection, sectionTie: section.id.rawValue, rank: 1, order: row.order, tie: row.id), section: ItemListSectionId(nextSection), payload: payload, menuContext: rowContext))
+            sectionBindings.append(contentsOf: row.anyBindings)
+        }
+        if rowEntries.isEmpty {
+            continue
+        }
+        result.resettable.append(contentsOf: sectionBindings)
+        if let header = section.header {
+            result.entries.append(GGMenuEntry(id: .sectionHeader(section.id.rawValue), key: GGMenuSortKey(section: nextSection, sectionTie: section.id.rawValue, rank: 0, order: 0, tie: ""), section: ItemListSectionId(nextSection), payload: .sectionHeader(header()), menuContext: rowContext))
+        }
+        result.entries.append(contentsOf: rowEntries)
+        if let footer = section.footer?(rowContext), !footer.isEmpty {
+            result.entries.append(GGMenuEntry(id: .sectionFooter(section.id.rawValue), key: GGMenuSortKey(section: nextSection, sectionTie: section.id.rawValue, rank: 2, order: 0, tie: ""), section: ItemListSectionId(nextSection), payload: .footer(footer), menuContext: rowContext))
+        }
+        nextSection += 1
+    }
+
+    let categoriesSection = nextSection
     var categoryEntries: [GGMenuEntry] = []
     for (index, category) in GGMenuCategory.allCases.enumerated() {
         if !ggMenuScreenHasContent(.category(category), menuContext: menuContext) {
             continue
         }
-        categoryEntries.append(GGMenuEntry(id: .category(category.rawValue), key: GGMenuSortKey(section: 3, rank: 1, order: index, tie: ""), section: 3, payload: .navigation(title: category.title, subtitle: category.subtitle, label: nil, icon: category.icon, enabled: true, destructive: false), menuContext: menuContext))
+        categoryEntries.append(GGMenuEntry(id: .category(category.rawValue), key: GGMenuSortKey(section: categoriesSection, rank: 1, order: index, tie: ""), section: ItemListSectionId(categoriesSection), payload: .navigation(title: category.title, subtitle: category.subtitle, label: nil, icon: category.icon, enabled: true, destructive: false), menuContext: menuContext))
     }
     if !categoryEntries.isEmpty {
-        result.entries.append(GGMenuEntry(id: .sectionHeader("root.categories"), key: GGMenuSortKey(section: 3, rank: 0, order: 0, tie: ""), section: 3, payload: .sectionHeader(GGStrings.Menu.Root.categories), menuContext: menuContext))
+        result.entries.append(GGMenuEntry(id: .sectionHeader("root.categories"), key: GGMenuSortKey(section: categoriesSection, rank: 0, order: 0, tie: ""), section: ItemListSectionId(categoriesSection), payload: .sectionHeader(GGStrings.Menu.Root.categories), menuContext: menuContext))
         result.entries.append(contentsOf: categoryEntries)
     }
 
-    let footerSection = ggMenuLinks.isEmpty ? 3 : 4
+    let linksSection = categoriesSection + 1
+    let footerSection = ggMenuLinks.isEmpty ? categoriesSection : linksSection
     if !ggMenuLinks.isEmpty {
-        result.entries.append(GGMenuEntry(id: .sectionHeader("root.links"), key: GGMenuSortKey(section: 4, rank: 0, order: 0, tie: ""), section: 4, payload: .sectionHeader(GGStrings.Menu.Root.links), menuContext: menuContext))
+        result.entries.append(GGMenuEntry(id: .sectionHeader("root.links"), key: GGMenuSortKey(section: linksSection, rank: 0, order: 0, tie: ""), section: ItemListSectionId(linksSection), payload: .sectionHeader(GGStrings.Menu.Root.links), menuContext: menuContext))
         for (index, link) in ggMenuLinks.enumerated() {
-            result.entries.append(GGMenuEntry(id: .link(link.id), key: GGMenuSortKey(section: 4, rank: 1, order: index, tie: ""), section: 4, payload: .navigation(title: ggMenuLinkTitle(link.id), subtitle: nil, label: link.username, icon: link.icon, enabled: true, destructive: false), menuContext: menuContext))
+            result.entries.append(GGMenuEntry(id: .link(link.id), key: GGMenuSortKey(section: linksSection, rank: 1, order: index, tie: ""), section: ItemListSectionId(linksSection), payload: .navigation(title: ggMenuLinkTitle(link.id), subtitle: nil, label: link.username, icon: link.icon, enabled: true, destructive: false), menuContext: menuContext))
         }
     }
     result.entries.append(GGMenuEntry(id: .sectionFooter("root.links"), key: GGMenuSortKey(section: footerSection, rank: 2, order: 0, tie: ""), section: ItemListSectionId(footerSection), payload: .footer(GGStrings.Menu.Root.footer(version: ggAppVersionString())), menuContext: menuContext))

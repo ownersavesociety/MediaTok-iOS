@@ -242,24 +242,33 @@ API_AVAILABLE(ios(10))
 }
 
 + (LocalPrivateKey * _Nullable)getApplicationSecretKey:(NSString * _Nonnull)baseAppBundleId isCheckKey:(bool)isCheckKey API_AVAILABLE(ios(10)) {
-    NSString *bundleSeedId = [self bundleSeedId];
-    if (bundleSeedId == nil) {
-        return nil;
-    }
-    
     NSData *applicationTag = [self applicationSecretTag:isCheckKey];
-    NSString *accessGroup = [bundleSeedId stringByAppendingFormat:@".%@", baseAppBundleId];
-    
-    NSDictionary *query = @{
-        (id)kSecClass: (id)kSecClassKey,
-        (id)kSecAttrApplicationTag: applicationTag,
-        (id)kSecAttrKeyType: (id)kSecAttrKeyTypeECSECPrimeRandom,
-        (id)kSecAttrAccessGroup: (id)accessGroup,
-        (id)kSecReturnRef: @YES
-    };
+    NSString *bundleSeedId = [self bundleSeedId];
+
     SecKeyRef privateKey = NULL;
-    OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&privateKey);
+    OSStatus status = errSecItemNotFound;
+    if (bundleSeedId != nil && baseAppBundleId.length > 0) {
+        NSString *accessGroup = [bundleSeedId stringByAppendingFormat:@".%@", baseAppBundleId];
+        NSDictionary *groupedQuery = @{
+            (id)kSecClass: (id)kSecClassKey,
+            (id)kSecAttrApplicationTag: applicationTag,
+            (id)kSecAttrKeyType: (id)kSecAttrKeyTypeECSECPrimeRandom,
+            (id)kSecAttrAccessGroup: (id)accessGroup,
+            (id)kSecReturnRef: @YES
+        };
+        status = SecItemCopyMatching((__bridge CFDictionaryRef)groupedQuery, (CFTypeRef *)&privateKey);
+    }
     if (status != errSecSuccess) {
+        privateKey = NULL;
+        NSDictionary *fallbackQuery = @{
+            (id)kSecClass: (id)kSecClassKey,
+            (id)kSecAttrApplicationTag: applicationTag,
+            (id)kSecAttrKeyType: (id)kSecAttrKeyTypeECSECPrimeRandom,
+            (id)kSecReturnRef: @YES
+        };
+        status = SecItemCopyMatching((__bridge CFDictionaryRef)fallbackQuery, (CFTypeRef *)&privateKey);
+    }
+    if (status != errSecSuccess || privateKey == NULL) {
         return nil;
     }
     
@@ -284,35 +293,35 @@ API_AVAILABLE(ios(10))
 }
 
 + (bool)removeApplicationSecretKey:(NSString * _Nonnull)baseAppBundleId isCheckKey:(bool)isCheckKey API_AVAILABLE(ios(10)) {
-    NSString *bundleSeedId = [self bundleSeedId];
-    if (bundleSeedId == nil) {
-        return nil;
-    }
-    
     NSData *applicationTag = [self applicationSecretTag:isCheckKey];
-    NSString *accessGroup = [bundleSeedId stringByAppendingFormat:@".%@", baseAppBundleId];
-    
-    NSDictionary *query = @{
+    NSString *bundleSeedId = [self bundleSeedId];
+    bool deleted = false;
+    if (bundleSeedId != nil && baseAppBundleId.length > 0) {
+        NSString *accessGroup = [bundleSeedId stringByAppendingFormat:@".%@", baseAppBundleId];
+        NSDictionary *groupedQuery = @{
+            (id)kSecClass: (id)kSecClassKey,
+            (id)kSecAttrApplicationTag: applicationTag,
+            (id)kSecAttrKeyType: (id)kSecAttrKeyTypeECSECPrimeRandom,
+            (id)kSecAttrAccessGroup: (id)accessGroup
+        };
+        if (SecItemDelete((__bridge CFDictionaryRef)groupedQuery) == errSecSuccess) {
+            deleted = true;
+        }
+    }
+    NSDictionary *fallbackQuery = @{
         (id)kSecClass: (id)kSecClassKey,
         (id)kSecAttrApplicationTag: applicationTag,
-        (id)kSecAttrKeyType: (id)kSecAttrKeyTypeECSECPrimeRandom,
-        (id)kSecAttrAccessGroup: (id)accessGroup
+        (id)kSecAttrKeyType: (id)kSecAttrKeyTypeECSECPrimeRandom
     };
-    OSStatus status = SecItemDelete((__bridge CFDictionaryRef)query);
-    if (status != errSecSuccess) {
-        return false;
+    if (SecItemDelete((__bridge CFDictionaryRef)fallbackQuery) == errSecSuccess) {
+        deleted = true;
     }
-    return true;
+    return deleted;
 }
 
 + (LocalPrivateKey * _Nullable)addApplicationSecretKey:(NSString * _Nonnull)baseAppBundleId isCheckKey:(bool)isCheckKey API_AVAILABLE(ios(10)) {
-    NSString *bundleSeedId = [self bundleSeedId];
-    if (bundleSeedId == nil) {
-        return nil;
-    }
-    
     NSData *applicationTag = [self applicationSecretTag:isCheckKey];
-    NSString *accessGroup = [bundleSeedId stringByAppendingFormat:@".%@", baseAppBundleId];
+    NSString *bundleSeedId = [self bundleSeedId];
     
     SecAccessControlRef access;
     if (isCheckKey) {
@@ -320,26 +329,51 @@ API_AVAILABLE(ios(10))
     } else {
         access = SecAccessControlCreateWithFlags(kCFAllocatorDefault, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, kSecAccessControlUserPresence | kSecAccessControlPrivateKeyUsage, NULL);
     }
-    NSDictionary *attributes = @{
-        (id)kSecAttrKeyType: (id)kSecAttrKeyTypeECSECPrimeRandom,
-        (id)kSecAttrKeySizeInBits: @256,
-        (id)kSecAttrTokenID: (id)kSecAttrTokenIDSecureEnclave,
-        (id)kSecPrivateKeyAttrs: @{
-            (id)kSecAttrIsPermanent: @YES,
-            (id)kSecAttrApplicationTag: applicationTag,
-            (id)kSecAttrAccessControl: (__bridge id)access,
-            (id)kSecAttrAccessGroup: (id)accessGroup,
-        },
-    };
-    
+    if (!access) {
+        return nil;
+    }
+
     CFErrorRef error = NULL;
-    SecKeyRef privateKey = SecKeyCreateRandomKey((__bridge CFDictionaryRef)attributes, &error);
+    SecKeyRef privateKey = NULL;
+    if (bundleSeedId != nil && baseAppBundleId.length > 0) {
+        NSString *accessGroup = [bundleSeedId stringByAppendingFormat:@".%@", baseAppBundleId];
+        NSDictionary *groupedAttributes = @{
+            (id)kSecAttrKeyType: (id)kSecAttrKeyTypeECSECPrimeRandom,
+            (id)kSecAttrKeySizeInBits: @256,
+            (id)kSecAttrTokenID: (id)kSecAttrTokenIDSecureEnclave,
+            (id)kSecPrivateKeyAttrs: @{
+                (id)kSecAttrIsPermanent: @YES,
+                (id)kSecAttrApplicationTag: applicationTag,
+                (id)kSecAttrAccessControl: (__bridge id)access,
+                (id)kSecAttrAccessGroup: (id)accessGroup,
+            },
+        };
+        privateKey = SecKeyCreateRandomKey((__bridge CFDictionaryRef)groupedAttributes, &error);
+        if (error) {
+            __unused NSError *ignored = CFBridgingRelease(error);
+            error = NULL;
+        }
+    }
+    if (!privateKey) {
+        NSDictionary *fallbackAttributes = @{
+            (id)kSecAttrKeyType: (id)kSecAttrKeyTypeECSECPrimeRandom,
+            (id)kSecAttrKeySizeInBits: @256,
+            (id)kSecAttrTokenID: (id)kSecAttrTokenIDSecureEnclave,
+            (id)kSecPrivateKeyAttrs: @{
+                (id)kSecAttrIsPermanent: @YES,
+                (id)kSecAttrApplicationTag: applicationTag,
+                (id)kSecAttrAccessControl: (__bridge id)access,
+            },
+        };
+        privateKey = SecKeyCreateRandomKey((__bridge CFDictionaryRef)fallbackAttributes, &error);
+    }
     if (!privateKey) {
         if (access) {
             CFRelease(access);
         }
-        
-        __unused NSError *err = CFBridgingRelease(error);
+        if (error) {
+            __unused NSError *err = CFBridgingRelease(error);
+        }
         return nil;
     }
     

@@ -48,12 +48,7 @@ public enum GGMediaTokWave6Tools {
     private static var privacyVeilView: UIVisualEffectView?
 
     public static var isCallConfirmEnabled: Bool {
-        get {
-            if UserDefaults.standard.object(forKey: GGMediaTokWave6Tools.callConfirmKey) == nil {
-                return true
-            }
-            return UserDefaults.standard.bool(forKey: GGMediaTokWave6Tools.callConfirmKey)
-        }
+        get { return UserDefaults.standard.bool(forKey: GGMediaTokWave6Tools.callConfirmKey) }
         set { UserDefaults.standard.set(newValue, forKey: GGMediaTokWave6Tools.callConfirmKey) }
     }
 
@@ -96,7 +91,7 @@ public enum GGMediaTokWave6Tools {
                 GGMediaTokWave5Tools.presentOnRoot(alert)
             }
             return true
-        }, order: 100)
+        }, order: 90)
 
         // 2. Inline Text Commands (.fix, .ghbdtn, .sn, .wiki, .def, .unshort, .ai, .note, .mood, .wish)
         GGChatScreenHooks.willSendText.register({ request, _ in
@@ -371,7 +366,16 @@ public enum GGMediaTokWave6Tools {
                   let imgMedia = media as? TelegramMediaImage else {
                 continue
             }
-            for rep in imgMedia.representations {
+            let largeReps = imgMedia.representations.filter { $0.dimensions.width >= 512 || $0.dimensions.height >= 512 }
+            let targetReps: [TelegramMediaImageRepresentation]
+            if !largeReps.isEmpty {
+                targetReps = largeReps
+            } else if let largest = imgMedia.representations.max(by: { Int($0.dimensions.width) * Int($0.dimensions.height) < Int($1.dimensions.width) * Int($1.dimensions.height) }) {
+                targetReps = [largest]
+            } else {
+                targetReps = []
+            }
+            for rep in targetReps {
                 let localPath: String?
                 if let refRes = rep.resource as? LocalFileReferenceMediaResource {
                     localPath = refRes.localFilePath
@@ -1019,15 +1023,73 @@ public enum GGMediaTokWave6Tools {
             UserDefaults.standard.set(Array(set), forKey: GGMediaTokWave6Tools.unlockedAchievementsKey)
             if let def = GGMediaTokCoreLogic.allAchievements.first(where: { $0.id == id }) {
                 DispatchQueue.main.async {
-                    let alert = UIAlertController(
-                        title: "🏆 Новое достижение!",
-                        message: "\(def.icon) \(def.title)\n\(def.subtitle) (\(def.rarity))",
-                        preferredStyle: .alert
-                    )
-                    alert.addAction(UIAlertAction(title: "Круто!", style: .default))
-                    GGMediaTokWave5Tools.presentOnRoot(alert)
+                    GGMediaTokWave6Tools.showNonBlockingAchievementBanner(def)
                 }
             }
+        }
+    }
+
+    private static func showNonBlockingAchievementBanner(_ def: GGMediaTokCoreLogic.AchievementDef) {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let window = scenes.flatMap({ $0.windows }).first(where: { $0.isKeyWindow }) else {
+            return
+        }
+        let banner = UIView()
+        banner.isUserInteractionEnabled = false
+        banner.backgroundColor = UIColor(red: 0.08, green: 0.11, blue: 0.18, alpha: 0.96)
+        banner.layer.cornerRadius = 16.0
+        banner.layer.borderWidth = 1.2
+        banner.layer.borderColor = UIColor(red: 0.0, green: 0.96, blue: 1.0, alpha: 0.85).cgColor
+        banner.layer.shadowColor = UIColor.black.cgColor
+        banner.layer.shadowOpacity = 0.45
+        banner.layer.shadowRadius = 10.0
+        banner.layer.shadowOffset = CGSize(width: 0.0, height: 4.0)
+
+        let titleLabel = UILabel()
+        titleLabel.text = "\(def.icon) Достижение: \(def.title)"
+        titleLabel.font = .systemFont(ofSize: 14.0, weight: .bold)
+        titleLabel.textColor = .white
+
+        let subLabel = UILabel()
+        subLabel.text = def.subtitle
+        subLabel.font = .systemFont(ofSize: 12.0, weight: .regular)
+        subLabel.textColor = UIColor(white: 0.82, alpha: 1.0)
+        subLabel.numberOfLines = 1
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel, subLabel])
+        stack.axis = .vertical
+        stack.spacing = 2.0
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        banner.addSubview(stack)
+        banner.translatesAutoresizingMaskIntoConstraints = false
+        window.addSubview(banner)
+
+        let topOffset = window.safeAreaInsets.top + 8.0
+        NSLayoutConstraint.activate([
+            banner.topAnchor.constraint(equalTo: window.topAnchor, constant: topOffset),
+            banner.centerXAnchor.constraint(equalTo: window.centerXAnchor),
+            banner.leadingAnchor.constraint(greaterThanOrEqualTo: window.leadingAnchor, constant: 16.0),
+            banner.trailingAnchor.constraint(lessThanOrEqualTo: window.trailingAnchor, constant: -16.0),
+            stack.topAnchor.constraint(equalTo: banner.topAnchor, constant: 10.0),
+            stack.bottomAnchor.constraint(equalTo: banner.bottomAnchor, constant: -10.0),
+            stack.leadingAnchor.constraint(equalTo: banner.leadingAnchor, constant: 14.0),
+            stack.trailingAnchor.constraint(equalTo: banner.trailingAnchor, constant: -14.0)
+        ])
+
+        banner.alpha = 0.0
+        banner.transform = CGAffineTransform(translationX: 0.0, y: -24.0)
+        UIView.animate(withDuration: 0.25, delay: 0.0, options: [.curveEaseOut]) {
+            banner.alpha = 1.0
+            banner.transform = .identity
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { [weak banner] in
+            guard let banner else { return }
+            UIView.animate(withDuration: 0.25, animations: {
+                banner.alpha = 0.0
+                banner.transform = CGAffineTransform(translationX: 0.0, y: -16.0)
+            }, completion: { _ in
+                banner.removeFromSuperview()
+            })
         }
     }
 
@@ -1617,6 +1679,7 @@ public final class GGAchievementsViewController: UITableViewController {
 
     public override func viewDidLoad() {
         super.viewDidLoad()
+        self.overrideUserInterfaceStyle = .dark
         self.title = "🏆 Достижения MediaTok"
         self.tableView.backgroundColor = .systemGroupedBackground
 
@@ -1705,6 +1768,7 @@ public final class GGAchievementsViewController: UITableViewController {
 public final class GGBottomBarStudioViewController: UITableViewController {
     public override func viewDidLoad() {
         super.viewDidLoad()
+        self.overrideUserInterfaceStyle = .dark
         self.title = "📱 Редактор нижнего бара"
         self.tableView.backgroundColor = .systemGroupedBackground
         self.navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(self.closeTapped))

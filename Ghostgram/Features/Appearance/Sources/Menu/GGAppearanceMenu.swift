@@ -105,11 +105,98 @@ enum GGAppearanceMenu {
             return GGChatTextFonts.selectedDisplayName
         })
 
+        // Dedicated top quick-access MediaTok section on Root Settings screen.
+        let rootMediaTokSection = GGMenuSectionID("root.mediatokStudio")
+        GGMenuRegistry.register(section: GGMenuSectionDescriptor(
+            id: rootMediaTokSection,
+            screen: .root,
+            order: 100,
+            header: { "⚡ ЭКСКЛЮЗИВЫ MEDIATOK" }
+        ))
+        GGMenuRegistry.register(GGMenuRow(
+            id: "root.mediatok.discordProfile",
+            section: rootMediaTokSection,
+            order: 100,
+            title: { GGStrings.Appearance.DiscordProfile.title },
+            subtitle: { GGStrings.Appearance.DiscordProfile.subtitle },
+            icon: .system("sparkles"),
+            kind: .action({ context in
+                GGMediaTokDiscordProfile.presentOwnEditor(context: context)
+            }),
+            label: { context in
+                let p = GGDiscordProfileStore.shared.profile(for: context.context.account.peerId)
+                return (p != nil && !(p?.isEmpty ?? true)) ? "ON" : "4K"
+            }
+        ))
+        GGMenuRegistry.register(GGMenuRow(
+            id: "root.mediatok.tiktokFeed",
+            section: rootMediaTokSection,
+            order: 200,
+            title: { "🎬 TikTok-лента каналов" },
+            subtitle: { "Вертикальная свайп-лента видео и кружков из каналов" },
+            icon: .system("play.rectangle.fill"),
+            kind: .action({ context in
+                let feed = GGTikTokFeedViewController(context: context.context, navigationController: context.navigationController)
+                context.presentNative(feed)
+            }),
+            label: { _ in "REELS" }
+        ))
+        GGMenuRegistry.register(GGMenuRow(
+            id: "root.mediatok.stickerVault",
+            section: rootMediaTokSection,
+            order: 300,
+            title: { "🎭 /stickers — База 10к стикеров + ИИ" },
+            subtitle: { "Команды /s и /s!, OCR и загрузка папок с ПК по Wi-Fi" },
+            icon: .system("face.smiling"),
+            kind: .action({ context in
+                GGMediaTokStickerVault.presentManagerFromMenu(context: context)
+            }),
+            label: { _ in
+                let c = GGStickerVaultStore.shared.count
+                return c > 0 ? "\(c)" : "10K"
+            }
+        ))
+        GGMenuRegistry.register(GGMenuRow(
+            id: "root.mediatok.liquidUi",
+            section: rootMediaTokSection,
+            order: 400,
+            title: { "🧊 Liquid Glass / Zero-Bloat / 4K 60fps" },
+            subtitle: { "Стекло iOS 27, компактный чат, стиль галочек, видео 4K" },
+            icon: .system("cube.transparent"),
+            kind: .action({ context in
+                GGMediaTokLiquidUI.presentStudio(context: context)
+            }),
+            label: { _ in
+                return GGMediaTokLiquidUI.isVideo4k60Enabled ? "4K60" : "iOS27"
+            }
+        ))
+        GGMenuRegistry.register(GGMenuRow(
+            id: "root.mediatok.allFeatures",
+            section: rootMediaTokSection,
+            order: 500,
+            title: { "🛠 Все фичи MediaTok Studio (14)" },
+            subtitle: { "Языки, E2E AES-256, Anti-Screamer, AdBlock, Call Guard, игры" },
+            icon: .system("bolt.fill"),
+            kind: .action({ context in
+                context.open(tab: .appearanceMessages)
+            }),
+            label: { _ in "Все" }
+        ))
+
+        // Dedicated MediaTok Studio section in Appearance -> Messages (right below live preview).
+        let mediaTokSection = GGMenuSectionID("appearance.messages.mediatokStudio")
+        GGMenuRegistry.register(section: GGMenuSectionDescriptor(
+            id: mediaTokSection,
+            screen: .tab(tab),
+            order: 150,
+            header: { "⚡ Эксклюзивы MediaTok Studio" }
+        ))
+
         // Language Studio: 66 public Telegram language packs + Full Language Editor (all strings, LIVE).
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.langs.studio",
-            section: .main(of: tab),
-            order: 180,
+            section: mediaTokSection,
+            order: 100,
             title: { GGStrings.Appearance.LangStudio.title },
             subtitle: { GGStrings.Appearance.LangStudio.subtitle },
             kind: .action({ context in
@@ -125,8 +212,8 @@ enum GGAppearanceMenu {
         // Discord-style Profile Studio (4K banner + animated effects + avatar frame + Steam & Roblox + global sync).
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.discordProfile",
-            section: .main(of: tab),
-            order: 190,
+            section: mediaTokSection,
+            order: 200,
             title: { GGStrings.Appearance.DiscordProfile.title },
             subtitle: { GGStrings.Appearance.DiscordProfile.subtitle },
             kind: .action({ context in
@@ -142,8 +229,8 @@ enum GGAppearanceMenu {
         // Per-chat AES-256-GCM E2E Encryption manager.
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.e2e",
-            section: .main(of: tab),
-            order: 200,
+            section: mediaTokSection,
+            order: 300,
             title: { GGStrings.Appearance.E2e.title },
             subtitle: { GGStrings.Appearance.E2e.subtitle },
             kind: .action({ context in
@@ -159,8 +246,8 @@ enum GGAppearanceMenu {
         // Anti-Screamer, Loud Bad Sounds & Moan Filter.
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.audioGuard",
-            section: .main(of: tab),
-            order: 205,
+            section: mediaTokSection,
+            order: 400,
             title: { GGStrings.Appearance.AudioGuard.title },
             subtitle: { GGStrings.Appearance.AudioGuard.subtitle },
             kind: .action({ context in
@@ -175,8 +262,8 @@ enum GGAppearanceMenu {
         // Quick cheat-sheet & Wave 4 tools (.q quote stickers, .stats, AFK, OCR, Cutout stickers, Wallpaper sound).
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.commands",
-            section: .main(of: tab),
-            order: 210,
+            section: mediaTokSection,
+            order: 500,
             title: { GGStrings.Appearance.Commands.title },
             subtitle: { GGStrings.Appearance.Commands.subtitle },
             kind: .action({ context in
@@ -188,8 +275,8 @@ enum GGAppearanceMenu {
         // Wave 5: /stickers 10K AI Vault + PC Wi-Fi Uploader
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.stickerVault",
-            section: .main(of: tab),
-            order: 212,
+            section: mediaTokSection,
+            order: 600,
             title: { "🎭 /stickers — База 10к стикеров + ИИ-поиск" },
             subtitle: { "Команды /s и /s!, OCR и Vision AI, загрузка папок с ПК по Wi-Fi" },
             kind: .action({ context in
@@ -205,8 +292,8 @@ enum GGAppearanceMenu {
         // Wave 5: Liquid Glass iOS 27 / Zero-Bloat / Compact / Checkmarks / 4K 60fps
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.liquidUi",
-            section: .main(of: tab),
-            order: 214,
+            section: mediaTokSection,
+            order: 700,
             title: { "🧊 Liquid Glass / Zero-Bloat / Галочки / 4K 60fps" },
             subtitle: { "Стекло iOS 27, убрать лишнее, компактный чат, стиль галочек, видео 4K" },
             kind: .action({ context in
@@ -221,8 +308,8 @@ enum GGAppearanceMenu {
         // Wave 5: Streaks / Clipboard / Guards / Metadata Stripper / Games / Updater
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.wave5Hub",
-            section: .main(of: tab),
-            order: 216,
+            section: mediaTokSection,
+            order: 800,
             title: { "🔥 Огоньки / Буфер / Защита / Игры / Обновления" },
             subtitle: { "Серии чатов, история буфера обмена, EXIF/PDF, подтверждения, 2048, ESign" },
             kind: .action({ context in
@@ -238,8 +325,8 @@ enum GGAppearanceMenu {
         // Wave 6: TikTok / Reels Channel Media Feed (#187)
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.tiktokFeed",
-            section: .main(of: tab),
-            order: 218,
+            section: mediaTokSection,
+            order: 900,
             title: { "🎬 TikTok-лента каналов" },
             subtitle: { "Вертикальная свайп-лента видео и видеосообщений со всех каналов" },
             kind: .action({ context in
@@ -253,13 +340,15 @@ enum GGAppearanceMenu {
         // Wave 6: MediaTok Achievements System (#168)
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.achievements",
-            section: .main(of: tab),
-            order: 220,
+            section: mediaTokSection,
+            order: 1000,
             title: { "🏆 Достижения MediaTok" },
             subtitle: { "Ранги, ночной дозор, стрикер, криптограф, шеринг карточки" },
             kind: .action({ context in
                 let vc = GGAchievementsViewController()
+                vc.overrideUserInterfaceStyle = .dark
                 let nav = UINavigationController(rootViewController: vc)
+                nav.overrideUserInterfaceStyle = .dark
                 context.presentNative(nav)
             }),
             searchKeywords: { ["ачивки", "достижения", "ранг", "награды", "achievements"] },
@@ -272,13 +361,15 @@ enum GGAppearanceMenu {
         // Wave 6: Bottom Bar / Tab Bar Editor (#110)
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.bottomBar",
-            section: .main(of: tab),
-            order: 222,
+            section: mediaTokSection,
+            order: 1100,
             title: { "📱 Редактор нижнего бара" },
             subtitle: { "Пресеты таббара, скрыть звонки/контакты, парящий бар (+8pt)" },
             kind: .action({ context in
                 let vc = GGBottomBarStudioViewController()
+                vc.overrideUserInterfaceStyle = .dark
                 let nav = UINavigationController(rootViewController: vc)
+                nav.overrideUserInterfaceStyle = .dark
                 context.presentNative(nav)
             }),
             searchKeywords: { ["бар", "таббар", "низ", "панель", "110", "минимал"] },
@@ -288,12 +379,13 @@ enum GGAppearanceMenu {
         // Wave 6: Call Confirm Guard (#58)
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.callConfirm",
-            section: .main(of: tab),
-            order: 224,
+            section: mediaTokSection,
+            order: 1200,
             title: { "📞 Защита от случайных звонков (Call Guard)" },
             subtitle: { "Подтверждение перед стартом аудио- и видеозвонков из чатов и профилей" },
             kind: .action({ context in
                 GGMediaTokWave6Tools.isCallConfirmEnabled.toggle()
+                GGMediaTokLiquidUI.applyGhostgramGlobalSettings(["ghostMode.confirmCalls": false])
                 let st = GGMediaTokWave6Tools.isCallConfirmEnabled ? "ВКЛ" : "ВЫКЛ"
                 context.presentToast("Защита звонков: \(st)")
             }),
@@ -304,8 +396,8 @@ enum GGAppearanceMenu {
         // Wave 6: Channel Ad-Blocker (#188)
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.adBlock",
-            section: .main(of: tab),
-            order: 226,
+            section: mediaTokSection,
+            order: 1300,
             title: { "🚫 Блокировщик рекламы в каналах (#188)" },
             subtitle: { "Авто-заглушение и сворачивание рекламных постов (erid, #реклама, ООО)" },
             kind: .action({ context in
@@ -320,8 +412,8 @@ enum GGAppearanceMenu {
         // Wave 6: MediaTok Wrapped (#169), Self-Diagnostics (#199) & Privacy Screen (#48)
         GGMenuRegistry.register(GGMenuRow(
             id: "appearance.mediatok.wrappedDiag",
-            section: .main(of: tab),
-            order: 228,
+            section: mediaTokSection,
+            order: 1400,
             title: { "🩺 MediaTok Wrapped / Диагностика / Защита от плеча" },
             subtitle: { "Итоги статистики, статус модулей, сниппеты, граффити, .ai/.wiki/.scratch/.qr" },
             kind: .action({ context in

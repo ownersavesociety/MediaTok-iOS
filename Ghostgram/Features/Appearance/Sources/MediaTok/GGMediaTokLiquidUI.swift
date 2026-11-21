@@ -174,7 +174,9 @@ enum GGMediaTokLiquidUI {
 
     static func presentStudio(context: GGMenuContext) {
         let vc = GGLiquidUIStudioViewController(menuContext: context)
+        vc.overrideUserInterfaceStyle = .dark
         let nav = UINavigationController(rootViewController: vc)
+        nav.overrideUserInterfaceStyle = .dark
         nav.modalPresentationStyle = .pageSheet
         context.presentNative(nav)
     }
@@ -182,6 +184,7 @@ enum GGMediaTokLiquidUI {
 
 private final class GGLiquidUIStudioViewController: UITableViewController {
     private let menuContext: GGMenuContext
+    private weak var activeToastView: UIView?
 
     init(menuContext: GGMenuContext) {
         self.menuContext = menuContext
@@ -195,8 +198,61 @@ private final class GGLiquidUIStudioViewController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        self.overrideUserInterfaceStyle = .dark
         self.title = "🧊 Интерфейс и Видео 4K"
         self.navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(self.closeTapped))
+    }
+
+    private func showInlineToast(_ text: String) {
+        let hostView: UIView = self.navigationController?.view ?? self.view
+        self.activeToastView?.removeFromSuperview()
+
+        let pill = UIView()
+        pill.isUserInteractionEnabled = false
+        pill.backgroundColor = UIColor(red: 0.08, green: 0.11, blue: 0.18, alpha: 0.96)
+        pill.layer.cornerRadius = 14.0
+        pill.layer.borderWidth = 1.0
+        pill.layer.borderColor = UIColor(red: 0.0, green: 0.96, blue: 1.0, alpha: 0.75).cgColor
+        pill.layer.shadowColor = UIColor.black.cgColor
+        pill.layer.shadowOpacity = 0.4
+        pill.layer.shadowRadius = 8.0
+        pill.layer.shadowOffset = CGSize(width: 0.0, height: 3.0)
+
+        let label = UILabel()
+        label.text = text
+        label.font = .systemFont(ofSize: 13.5, weight: .semibold)
+        label.textColor = .white
+        label.numberOfLines = 2
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        pill.addSubview(label)
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        hostView.addSubview(pill)
+
+        NSLayoutConstraint.activate([
+            pill.bottomAnchor.constraint(equalTo: hostView.safeAreaLayoutGuide.bottomAnchor, constant: -14.0),
+            pill.centerXAnchor.constraint(equalTo: hostView.centerXAnchor),
+            pill.leadingAnchor.constraint(greaterThanOrEqualTo: hostView.leadingAnchor, constant: 20.0),
+            pill.trailingAnchor.constraint(lessThanOrEqualTo: hostView.trailingAnchor, constant: -20.0),
+            label.topAnchor.constraint(equalTo: pill.topAnchor, constant: 10.0),
+            label.bottomAnchor.constraint(equalTo: pill.bottomAnchor, constant: -10.0),
+            label.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 16.0),
+            label.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -16.0)
+        ])
+
+        self.activeToastView = pill
+        pill.alpha = 0.0
+        UIView.animate(withDuration: 0.2) {
+            pill.alpha = 1.0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak pill] in
+            guard let pill else { return }
+            UIView.animate(withDuration: 0.2, animations: {
+                pill.alpha = 0.0
+            }, completion: { _ in
+                pill.removeFromSuperview()
+            })
+        }
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
@@ -267,7 +323,7 @@ private final class GGLiquidUIStudioViewController: UITableViewController {
             default:
                 cell.textLabel?.text = "📞 Подтверждение звонков"
                 cell.detailTextLabel?.text = "Защита от случайного нажатия кнопки звонка"
-                sw.isOn = GGMediaTokLiquidUI.readGhostgramGlobalBool("ghostMode.confirmCalls", fallback: true)
+                sw.isOn = GGMediaTokWave6Tools.isCallConfirmEnabled
                 sw.addTarget(self, action: #selector(self.confirmCallsToggled(_:)), for: .valueChanged)
             }
             cell.accessoryView = sw
@@ -294,36 +350,39 @@ private final class GGLiquidUIStudioViewController: UITableViewController {
             let item = GGMediaTokLiquidUI.liquidPresets[indexPath.row]
             GGMediaTokLiquidUI.setLiquidPreset(item.id)
             tableView.reloadSections(IndexSet(integer: 0), with: .automatic)
-            self.menuContext.presentToast("🧊 Пресет применён: \(item.title)")
+            self.showInlineToast("🧊 Пресет применён: \(item.title)")
         } else if indexPath.section == 2 {
             let item = GGMediaTokLiquidUI.checkmarkStyles[indexPath.row]
             GGMediaTokLiquidUI.setCheckmarkStyle(item.id)
             tableView.reloadSections(IndexSet(integer: 2), with: .automatic)
-            self.menuContext.presentToast("✔️ Стиль галочек: \(item.title)")
+            self.showInlineToast("✔️ Стиль галочек: \(item.title)")
         }
     }
 
     @objc private func zeroBloatToggled(_ sender: UISwitch) {
         GGMediaTokLiquidUI.setZeroBloatEnabled(sender.isOn)
-        self.menuContext.presentToast(sender.isOn ? "🧹 Zero-Bloat ВКЛ!" : "Zero-Bloat ВЫКЛ")
+        self.showInlineToast(sender.isOn ? "🧹 Zero-Bloat ВКЛ!" : "Zero-Bloat ВЫКЛ")
     }
 
     @objc private func compactToggled(_ sender: UISwitch) {
         GGMediaTokLiquidUI.setCompactModeEnabled(sender.isOn)
-        self.menuContext.presentToast(sender.isOn ? "💬 Компактный режим ВКЛ!" : "Компактный режим ВЫКЛ")
+        self.showInlineToast(sender.isOn ? "💬 Компактный режим ВКЛ!" : "Компактный режим ВЫКЛ")
     }
 
     @objc private func charCounterToggled(_ sender: UISwitch) {
         GGMediaTokLiquidUI.applyGhostgramGlobalSettings(["interface.inputBar.characterCounter": sender.isOn])
+        self.showInlineToast(sender.isOn ? "🔢 Счётчик символов ВКЛ!" : "Счётчик символов ВЫКЛ")
     }
 
     @objc private func confirmCallsToggled(_ sender: UISwitch) {
-        GGMediaTokLiquidUI.applyGhostgramGlobalSettings(["ghostMode.confirmCalls": sender.isOn])
+        GGMediaTokWave6Tools.isCallConfirmEnabled = sender.isOn
+        GGMediaTokLiquidUI.applyGhostgramGlobalSettings(["ghostMode.confirmCalls": false])
+        self.showInlineToast(sender.isOn ? "📞 Подтверждение звонков ВКЛ!" : "Подтверждение звонков ВЫКЛ")
     }
 
     @objc private func video4kToggled(_ sender: UISwitch) {
         GGMediaTokLiquidUI.setVideo4k60Enabled(sender.isOn)
-        self.menuContext.presentToast(sender.isOn ? "🎬 Экспорт 4K 60 FPS ВКЛ!" : "Стандартное сжатие видео ТГ")
+        self.showInlineToast(sender.isOn ? "🎬 Экспорт 4K 60 FPS ВКЛ!" : "Стандартное сжатие видео ТГ")
     }
 
     @objc private func closeTapped() {

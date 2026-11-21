@@ -1966,12 +1966,15 @@ private final class GGDiscordHeaderOverlay {
             overlay = GGDiscordHeaderOverlay(node: header.node)
             objc_setAssociatedObject(header.node, &GGDiscordHeaderOverlay.assocKey, overlay, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         }
+        let isNewPeer = overlay.peerId != peerId
         overlay.peerId = peerId
         overlay.lastWidth = header.width
         if let bg = header.backgroundContainerView {
             overlay.bannerContainer = bg
         }
-        GGDiscordProfileStore.shared.checkGlobalProfile(for: peerId)
+        if isNewPeer {
+            GGDiscordProfileStore.shared.checkGlobalProfile(for: peerId)
+        }
         overlay.refresh()
     }
 
@@ -2101,9 +2104,11 @@ private final class GGDiscordHeaderOverlay {
         }
 
         // 3. Glowing Animated Avatar Frame & Tiny Circular Voice Bio Button
-        let avatarRect = self.locateRoundAvatarFrame(in: node.view, headerWidth: self.lastWidth)
         let frameId = profile?.avatarFrameId ?? "none"
-        if frameId != "none" && !frameId.isEmpty, let avatarRect {
+        let hasFrame = frameId != "none" && !frameId.isEmpty
+        let hasVoiceBio = !(profile?.voiceBioFileName.isEmpty ?? true) || !(profile?.voiceBioUrl.isEmpty ?? true)
+        let avatarRect: CGRect? = (hasFrame || hasVoiceBio) ? self.locateRoundAvatarFrame(in: node.view, headerWidth: self.lastWidth) : nil
+        if hasFrame, let avatarRect {
             let ring: GGAvatarFrameRingView
             if let existing = self.avatarFrameView {
                 ring = existing
@@ -2121,7 +2126,6 @@ private final class GGDiscordHeaderOverlay {
             self.avatarFrameView?.isHidden = true
         }
 
-        let hasVoiceBio = !(profile?.voiceBioFileName.isEmpty ?? true) || !(profile?.voiceBioUrl.isEmpty ?? true)
         if hasVoiceBio, let avatarRect {
             let btn: UIButton
             if let existing = self.voiceBioButton {
@@ -2466,7 +2470,9 @@ enum GGMediaTokDiscordProfile {
     static func presentOwnEditor(context: GGMenuContext) {
         GGDiscordProfileStore.shared.activeAccountPeerId = context.context.account.peerId
         let vc = GGDiscordProfileEditorViewController(peerId: context.context.account.peerId, isOwn: true, onDone: nil)
+        vc.overrideUserInterfaceStyle = .dark
         let nav = UINavigationController(rootViewController: vc)
+        nav.overrideUserInterfaceStyle = .dark
         nav.modalPresentationStyle = .pageSheet
         context.presentNative(nav)
     }
@@ -2474,7 +2480,9 @@ enum GGMediaTokDiscordProfile {
     static func presentEditor(peerId: PeerId, isOwn: Bool, onDone: (() -> Void)?) {
         DispatchQueue.main.async {
             let vc = GGDiscordProfileEditorViewController(peerId: peerId, isOwn: isOwn, onDone: onDone)
+            vc.overrideUserInterfaceStyle = .dark
             let nav = UINavigationController(rootViewController: vc)
+            nav.overrideUserInterfaceStyle = .dark
             nav.modalPresentationStyle = .pageSheet
             let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             guard let root = scenes.flatMap({ $0.windows }).first(where: { $0.isKeyWindow })?.rootViewController else {
@@ -2573,6 +2581,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        self.overrideUserInterfaceStyle = .dark
         self.title = self.isOwn ? "Discord-профиль MediaTok" : "Профиль MediaTok"
         self.view.backgroundColor = .systemGroupedBackground
 

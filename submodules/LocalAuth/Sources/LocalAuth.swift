@@ -187,23 +187,25 @@ public struct LocalAuth {
         #if targetEnvironment(simulator)
         return PrivateKey()
         #else
-        guard let bundleSeedId = self.bundleSeedId() else {
-            return nil
-        }
-        
         let applicationTag = customKeyIdPrefix + keyId
-        let accessGroup = "\(bundleSeedId).\(baseAppBundleId)"
-        
-        let query: [String: Any] = [
+        let baseQuery: [String: Any] = [
             kSecClass as String: kSecClassKey as String,
             kSecAttrApplicationTag as String: applicationTag,
             kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom as String,
-            kSecAttrAccessGroup as String: accessGroup,
             kSecReturnRef as String: true
         ]
-        
+
         var maybePrivateKey: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &maybePrivateKey)
+        var status: OSStatus = errSecItemNotFound
+        if let bundleSeedId = self.bundleSeedId() {
+            var groupedQuery = baseQuery
+            groupedQuery[kSecAttrAccessGroup as String] = "\(bundleSeedId).\(baseAppBundleId)"
+            status = SecItemCopyMatching(groupedQuery as CFDictionary, &maybePrivateKey)
+        }
+        if status != errSecSuccess {
+            maybePrivateKey = nil
+            status = SecItemCopyMatching(baseQuery as CFDictionary, &maybePrivateKey)
+        }
         if status != errSecSuccess {
             return nil
         }
@@ -229,58 +231,68 @@ public struct LocalAuth {
     }
     
     public static func removePrivateKey(baseAppBundleId: String, keyId: Data) -> Bool {
-        guard let bundleSeedId = self.bundleSeedId() else {
-            return false
-        }
-        
         let applicationTag = customKeyIdPrefix + keyId
-        let accessGroup = "\(bundleSeedId).\(baseAppBundleId)"
-        
-        let query: [String: Any] = [
+        let baseQuery: [String: Any] = [
             kSecClass as String: kSecClassKey as String,
             kSecAttrApplicationTag as String: applicationTag,
             kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom as String,
-            kSecAttrIsPermanent as String: true,
-            kSecAttrAccessGroup as String: accessGroup
+            kSecAttrIsPermanent as String: true
         ]
-        
-        let status = SecItemDelete(query as CFDictionary)
-        if status != errSecSuccess {
-            return false
+        var deleted = false
+        if let bundleSeedId = self.bundleSeedId() {
+            var groupedQuery = baseQuery
+            groupedQuery[kSecAttrAccessGroup as String] = "\(bundleSeedId).\(baseAppBundleId)"
+            if SecItemDelete(groupedQuery as CFDictionary) == errSecSuccess {
+                deleted = true
+            }
         }
-        return true
+        if SecItemDelete(baseQuery as CFDictionary) == errSecSuccess {
+            deleted = true
+        }
+        return deleted
     }
     
     private static func addPrivateKey(baseAppBundleId: String, keyId: Data) -> PrivateKey? {
         #if targetEnvironment(simulator)
         return PrivateKey()
         #else
-        guard let bundleSeedId = self.bundleSeedId() else {
-            return nil
-        }
-        
         let applicationTag = customKeyIdPrefix + keyId
-        let accessGroup = "\(bundleSeedId).\(baseAppBundleId)"
         
         guard let access = SecAccessControlCreateWithFlags(kCFAllocatorDefault, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, [.userPresence, .privateKeyUsage], nil) else {
             return nil
         }
-        
-        let attributes: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom as String,
-            kSecAttrKeySizeInBits as String: 256 as NSNumber,
-            kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave as String,
-            kSecPrivateKeyAttrs as String: [
+
+        func makeAttributes(accessGroup: String?) -> [String: Any] {
+            var privAttrs: [String: Any] = [
                 kSecAttrIsPermanent as String: true,
                 kSecAttrApplicationTag as String: applicationTag,
-                kSecAttrAccessControl as String: access,
-                kSecAttrAccessGroup as String: accessGroup,
-            ] as [String: Any]
-        ]
-        var error: Unmanaged<CFError>?
-        let maybePrivateKey = SecKeyCreateRandomKey(attributes as CFDictionary, &error)
-        if let error {
-            error.release()
+                kSecAttrAccessControl as String: access
+            ]
+            if let accessGroup {
+                privAttrs[kSecAttrAccessGroup as String] = accessGroup
+            }
+            return [
+                kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom as String,
+                kSecAttrKeySizeInBits as String: 256 as NSNumber,
+                kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave as String,
+                kSecPrivateKeyAttrs as String: privAttrs
+            ]
+        }
+
+        var maybePrivateKey: SecKey?
+        if let bundleSeedId = self.bundleSeedId() {
+            var error: Unmanaged<CFError>?
+            maybePrivateKey = SecKeyCreateRandomKey(makeAttributes(accessGroup: "\(bundleSeedId).\(baseAppBundleId)") as CFDictionary, &error)
+            if let error {
+                error.release()
+            }
+        }
+        if maybePrivateKey == nil {
+            var error: Unmanaged<CFError>?
+            maybePrivateKey = SecKeyCreateRandomKey(makeAttributes(accessGroup: nil) as CFDictionary, &error)
+            if let error {
+                error.release()
+            }
         }
         guard let privateKey = maybePrivateKey else {
             return nil

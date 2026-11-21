@@ -400,7 +400,9 @@ func ggSpoofMakeVisualEditorController(context: AccountContext, peerId: EnginePe
                             let videoResource = LocalFileMediaResource(fileId: saved.videoFileId, size: Int64(videoData.count), isSecretRelated: false)
                             context.engine.resources.storeResourceData(id: EngineMediaResource.Id(videoResource.id), data: videoData, synchronous: false)
                         }
-                        GGVisualProfileStore.shared.publishGlobal4kAvatar(for: peerKey, photoData: data, videoData: videoData)
+                        if peerId == context.account.peerId {
+                            GGVisualProfileStore.shared.publishGlobal4kAvatar(for: peerKey, photoData: data, videoData: videoData)
+                        }
                         let _ = draftAtomic.modify { cur in
                             var copy = cur
                             copy.avatarFileName = saved.url.lastPathComponent
@@ -416,7 +418,9 @@ func ggSpoofMakeVisualEditorController(context: AccountContext, peerId: EnginePe
                 } else if let saved = GGVisualProfileStore.shared.saveAvatarData(data, width: width, height: height, for: peerKey) {
                     let resource = LocalFileMediaResource(fileId: saved.fileId, size: Int64(data.count), isSecretRelated: false)
                     context.engine.resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data, synchronous: false)
-                    GGVisualProfileStore.shared.publishGlobal4kAvatar(for: peerKey, photoData: data, videoData: nil)
+                    if peerId == context.account.peerId {
+                        GGVisualProfileStore.shared.publishGlobal4kAvatar(for: peerKey, photoData: data, videoData: nil)
+                    }
                     let _ = draftAtomic.modify { cur in
                         var copy = cur
                         copy.avatarFileName = saved.url.lastPathComponent

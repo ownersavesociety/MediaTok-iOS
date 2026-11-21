@@ -302,7 +302,9 @@ enum GGMediaTokLangs {
             context.openTelegramLink("https://t.me/setlanguage/\(slug)")
         }
         let vc = GGLangStudioViewController(baseDict: baseDict, openPack: openPack)
+        vc.overrideUserInterfaceStyle = .dark
         let nav = UINavigationController(rootViewController: vc)
+        nav.overrideUserInterfaceStyle = .dark
         nav.modalPresentationStyle = .pageSheet
         context.presentNative(nav)
     }
@@ -338,6 +340,7 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        self.overrideUserInterfaceStyle = .dark
         self.title = "Языки MediaTok"
         self.view.backgroundColor = .systemGroupedBackground
         self.navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(self.closeTapped))

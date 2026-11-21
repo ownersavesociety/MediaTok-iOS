@@ -311,6 +311,7 @@ private final class GGClipboardHistoryViewController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        self.overrideUserInterfaceStyle = .dark
         GGMediaTokClipboard.captureCurrentPasteboard(forceRead: true)
         self.title = "📋 Буфер обмена MediaTok"
         self.navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(self.closeTapped))
@@ -919,7 +920,9 @@ enum GGMediaTokWave5Tools {
     static func presentClipboardPicker(onPick: ((String) -> Void)?) {
         DispatchQueue.main.async {
             let vc = GGClipboardHistoryViewController(onPick: onPick)
+            vc.overrideUserInterfaceStyle = .dark
             let nav = UINavigationController(rootViewController: vc)
+            nav.overrideUserInterfaceStyle = .dark
             nav.modalPresentationStyle = .pageSheet
             GGMediaTokWave5Tools.presentOnRoot(nav)
         }
@@ -1127,9 +1130,11 @@ private final class GGMiniGamesHubViewController: UIViewController {
     private let container = UIView()
     private let game2048 = GG2048View()
     private let snakeGame = GGSnakeView()
+    private var minesweeperVC: GGMinesweeperViewController?
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        self.overrideUserInterfaceStyle = .dark
         self.title = "🎮 Офлайн-игры MediaTok"
         self.view.backgroundColor = UIColor(rgb: 0x0B0F17)
         self.navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(self.closeTapped))
@@ -1178,20 +1183,29 @@ private final class GGMiniGamesHubViewController: UIViewController {
     }
 
     @objc private func tabChanged() {
-        if self.segmented.selectedSegmentIndex == 2 {
-            self.snakeGame.stopTimer()
-            let minesweeper = GGMinesweeperViewController()
-            self.navigationController?.pushViewController(minesweeper, animated: true)
-            self.segmented.selectedSegmentIndex = 0
-            return
+        let idx = self.segmented.selectedSegmentIndex
+        if idx == 2 && self.minesweeperVC == nil {
+            let ms = GGMinesweeperViewController()
+            ms.overrideUserInterfaceStyle = .dark
+            self.addChild(ms)
+            ms.view.translatesAutoresizingMaskIntoConstraints = false
+            self.container.addSubview(ms.view)
+            NSLayoutConstraint.activate([
+                ms.view.topAnchor.constraint(equalTo: self.container.topAnchor),
+                ms.view.leadingAnchor.constraint(equalTo: self.container.leadingAnchor),
+                ms.view.trailingAnchor.constraint(equalTo: self.container.trailingAnchor),
+                ms.view.bottomAnchor.constraint(equalTo: self.container.bottomAnchor)
+            ])
+            ms.didMove(toParent: self)
+            self.minesweeperVC = ms
         }
-        let is2048 = self.segmented.selectedSegmentIndex == 0
-        self.game2048.isHidden = !is2048
-        self.snakeGame.isHidden = is2048
-        if is2048 {
-            self.snakeGame.stopTimer()
-        } else {
+        self.game2048.isHidden = (idx != 0)
+        self.snakeGame.isHidden = (idx != 1)
+        self.minesweeperVC?.view.isHidden = (idx != 2)
+        if idx == 1 {
             self.snakeGame.ensureRunning()
+        } else {
+            self.snakeGame.stopTimer()
         }
     }
 

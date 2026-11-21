@@ -39,7 +39,9 @@ enum GGMediaTokTtfCreator {
 
     static func present(context: GGMenuContext) {
         let vc = GGTtfCreatorViewController()
+        vc.overrideUserInterfaceStyle = .dark
         let nav = UINavigationController(rootViewController: vc)
+        nav.overrideUserInterfaceStyle = .dark
         nav.modalPresentationStyle = .pageSheet
         context.presentNative(nav)
     }
@@ -215,6 +217,7 @@ private final class GGTtfCreatorViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        self.overrideUserInterfaceStyle = .dark
         self.title = "Создать шрифт (.ttf)"
         self.view.backgroundColor = .systemBackground
 
