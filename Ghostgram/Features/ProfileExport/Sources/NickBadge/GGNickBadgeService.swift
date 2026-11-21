@@ -23,7 +23,7 @@ import GGNickBadgeSlot
 //   (`GGNickBadgeSlot.refreshVisibleSlots`), bubbles through `GGMessageDecorationHooks.redrawAll()`.
 
 enum GGNickBadgeSettings {
-    static let isEnabled = GGSetting<Bool>("nickBadge.isEnabled", default: true)
+    static let isEnabled = GGSetting<Bool>("nickBadge.isEnabled", default: false)
 
     static func declare() {
         let _ = GGNickBadgeSettings.isEnabled

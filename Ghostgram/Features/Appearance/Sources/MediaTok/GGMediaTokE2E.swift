@@ -407,17 +407,7 @@ enum GGMediaTokE2E {
     }
 
     private static func presentAlertOnRoot(_ alert: UIAlertController) {
-        DispatchQueue.main.async {
-            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            guard let root = scenes.flatMap({ $0.windows }).first(where: { $0.isKeyWindow })?.rootViewController else {
-                return
-            }
-            var presenter = root
-            while let next = presenter.presentedViewController {
-                presenter = next
-            }
-            presenter.present(alert, animated: true)
-        }
+        GGModalPresenter.presentOnTopmost(alert)
     }
 
     private static func showToast(context: AccountContext, text: String) {

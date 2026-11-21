@@ -543,7 +543,7 @@ enum GGAppearanceMenu {
         GGAppearanceMenu.registerCustomFonts()
         GGAppearanceMenu.registerBundledFonts()
 
-        GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: GGAppearanceMenu.fontSystem, screen: .tab(GGAppearanceMenu.fontTab), order: 300, header: { GGStrings.Appearance.Font.systemHeader }, footer: { _ in
+        GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: GGAppearanceMenu.fontSystem, screen: .tab(GGAppearanceMenu.fontTab), order: 100, header: { GGStrings.Appearance.Font.systemHeader }, footer: { _ in
             if GGFonts.needsRestart {
                 return GGStrings.Core.requiresRestartFooter
             }
@@ -570,6 +570,17 @@ enum GGAppearanceMenu {
             }
             return GGStrings.Appearance.Font.bundledFooter
         }))
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.font.bundled.resetSystem",
+            section: GGAppearanceMenu.fontBundled,
+            order: 50,
+            title: { "🔄 Вернуть стандартный шрифт (SF Pro)" },
+            kind: .action({ context in
+                GGAppearanceSettings.fontFamily.set(GGFontFamily.system.rawValue)
+                context.presentToast("Системный шрифт SF Pro восстановлен")
+            }),
+            isVisible: { _ in GGAppearanceSettings.fontFamily.value != GGFontFamily.system.rawValue }
+        ))
         var order = 100
         for bundledFont in GGMediaTokFonts.all {
             GGMenuRegistry.register(GGMenuRow(id: "appearance.font.bundled.\(bundledFont.slug)", section: GGAppearanceMenu.fontBundled, order: order, title: { bundledFont.displayName }, kind: .custom({ context in
@@ -581,9 +592,11 @@ enum GGAppearanceMenu {
 
     private static func bundledFontItem(_ bundledFont: GGBundledFont, context: GGMenuContext) -> ListViewItem {
         let presentationData = context.itemListPresentationData
+        let isSelected = GGFonts.selectedBundledFont == bundledFont
         let sample = GGFonts.sampleImage(bundledFont: bundledFont, color: presentationData.theme.list.itemPrimaryTextColor)
-        return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, icon: sample, iconSize: sample?.size, title: bundledFont.displayName, subtitle: bundledFont.category, style: .right, checked: GGFonts.selectedBundledFont == bundledFont, zeroSeparatorInsets: false, sectionId: context.sectionId, action: {
-            GGMenuBinding.global(GGAppearanceSettings.fontFamily).set(GGMediaTokFonts.settingValue(bundledFont), in: context)
+        return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, icon: sample, iconSize: sample?.size, title: bundledFont.displayName, subtitle: bundledFont.category, style: .right, checked: isSelected, zeroSeparatorInsets: false, sectionId: context.sectionId, action: {
+            let target = isSelected ? GGFontFamily.system.rawValue : GGMediaTokFonts.settingValue(bundledFont)
+            GGMenuBinding.global(GGAppearanceSettings.fontFamily).set(target, in: context)
         })
     }
 
@@ -640,6 +653,17 @@ enum GGAppearanceMenu {
             }
             return GGStrings.Appearance.Font.customFooter
         }))
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.font.custom.resetSystem",
+            section: GGAppearanceMenu.fontCustom,
+            order: 50,
+            title: { "🔄 Вернуть стандартный шрифт (SF Pro)" },
+            kind: .action({ context in
+                GGAppearanceSettings.fontFamily.set(GGFontFamily.system.rawValue)
+                context.presentToast("Системный шрифт SF Pro восстановлен")
+            }),
+            isVisible: { _ in GGAppearanceSettings.fontFamily.value != GGFontFamily.system.rawValue }
+        ))
         for index in 0 ..< GGCustomFonts.maximumCount {
             let font: () -> GGCustomFont? = {
                 let fonts = GGCustomFonts.fonts
@@ -665,10 +689,12 @@ enum GGAppearanceMenu {
 
     private static func customFontItem(_ customFont: GGCustomFont, context: GGMenuContext) -> ListViewItem {
         let presentationData = context.itemListPresentationData
+        let isSelected = GGFonts.selectedCustomFont == customFont
         let sample = GGFonts.sampleImage(customFont: customFont, color: presentationData.theme.list.itemPrimaryTextColor)
         let detail: String? = GGFonts.hasCyrillic(customFont) ? nil : GGStrings.Appearance.Font.noCyrillic
-        return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, icon: sample, iconSize: sample?.size, title: customFont.familyName, subtitle: detail, style: .right, checked: GGFonts.selectedCustomFont == customFont, zeroSeparatorInsets: false, sectionId: context.sectionId, action: {
-            GGMenuBinding.global(GGAppearanceSettings.fontFamily).set(GGCustomFonts.settingValue(customFont), in: context)
+        return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, icon: sample, iconSize: sample?.size, title: customFont.familyName, subtitle: detail, style: .right, checked: isSelected, zeroSeparatorInsets: false, sectionId: context.sectionId, action: {
+            let target = isSelected ? GGFontFamily.system.rawValue : GGCustomFonts.settingValue(customFont)
+            GGMenuBinding.global(GGAppearanceSettings.fontFamily).set(target, in: context)
         })
     }
 
@@ -688,7 +714,8 @@ enum GGAppearanceMenu {
         let isSelected = GGFonts.selectedCustomFont == nil && GGFonts.selectedBundledFont == nil && GGFonts.selectedFamily == family
         let sample = GGFonts.sampleImage(family: family, color: presentationData.theme.list.itemPrimaryTextColor)
         return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, icon: sample, iconSize: sample?.size, title: GGFonts.displayName(family), subtitle: GGFonts.detail(family), style: .right, checked: isSelected, zeroSeparatorInsets: false, sectionId: context.sectionId, action: {
-            GGMenuBinding.global(GGAppearanceSettings.fontFamily).set(family.rawValue, in: context)
+            let target = (isSelected && family != .system) ? GGFontFamily.system.rawValue : family.rawValue
+            GGMenuBinding.global(GGAppearanceSettings.fontFamily).set(target, in: context)
         })
     }
 

@@ -218,13 +218,12 @@ public final class GGVisualProfileStore {
         }
     }
 
-    private func notifyLocked(touched key: GGPeerKey?) {
+    private func recordChangeLocked(touched key: GGPeerKey?) -> Int32 {
         if let key {
             self.touchedKeys.insert(key)
         }
         self.revisionValue = self.revisionValue &+ 1
-        let next = self.revisionValue
-        self.revisionPromise.set(next)
+        return self.revisionValue
     }
 
     private func removeAvatarFilesLocked(for peerKey: GGPeerKey, keepingFileName: String?, keepingVideoName: String? = nil) {
@@ -264,7 +263,7 @@ public final class GGVisualProfileStore {
     }
 
     public func setOverride(_ override: GGVisualPeerOverride, for peerKey: GGPeerKey) {
-        self.lock.withLock {
+        let nextRevision: Int32 = self.lock.withLock {
             self.ensureLoadedLocked()
             let keyStr = peerKey.stringValue
             let existing = self.entries[keyStr]
@@ -314,13 +313,14 @@ public final class GGVisualProfileStore {
                 self.entries[keyStr] = normalized
             }
             self.persistLocked()
-            self.notifyLocked(touched: peerKey)
+            return self.recordChangeLocked(touched: peerKey)
         }
+        self.revisionPromise.set(nextRevision)
     }
 
     @discardableResult
     public func saveAvatarData(_ data: Data, width: Int, height: Int, for peerKey: GGPeerKey) -> GGVisualAvatarInfo? {
-        return self.lock.withLock {
+        let outcome: (info: GGVisualAvatarInfo, revision: Int32)? = self.lock.withLock {
             self.ensureLoadedLocked()
             let dir = self.avatarsDirectoryURL()
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -351,14 +351,19 @@ public final class GGVisualProfileStore {
             self.fileIdToPath[fileId] = url.path
             self.removeAvatarFilesLocked(for: peerKey, keepingFileName: fileName, keepingVideoName: nil)
             self.persistLocked()
-            self.notifyLocked(touched: peerKey)
-            return GGVisualAvatarInfo(url: url, width: cur.avatarWidth, height: cur.avatarHeight, fileId: fileId)
+            let nextRevision = self.recordChangeLocked(touched: peerKey)
+            return (GGVisualAvatarInfo(url: url, width: cur.avatarWidth, height: cur.avatarHeight, fileId: fileId), nextRevision)
         }
+        guard let outcome else {
+            return nil
+        }
+        self.revisionPromise.set(outcome.revision)
+        return outcome.info
     }
 
     @discardableResult
     public func saveAvatarVideoData(_ videoData: Data, coverData: Data, width: Int, height: Int, for peerKey: GGPeerKey) -> GGVisualAvatarInfo? {
-        return self.lock.withLock {
+        let outcome: (info: GGVisualAvatarInfo, revision: Int32)? = self.lock.withLock {
             self.ensureLoadedLocked()
             let dir = self.avatarsDirectoryURL()
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -397,17 +402,22 @@ public final class GGVisualProfileStore {
             self.fileIdToVideoPath[videoFileId] = videoUrl.path
             self.removeAvatarFilesLocked(for: peerKey, keepingFileName: fileName, keepingVideoName: videoFileName)
             self.persistLocked()
-            self.notifyLocked(touched: peerKey)
-            return GGVisualAvatarInfo(url: url, width: cur.avatarWidth, height: cur.avatarHeight, fileId: fileId, videoUrl: videoUrl, videoFileId: videoFileId)
+            let nextRevision = self.recordChangeLocked(touched: peerKey)
+            return (GGVisualAvatarInfo(url: url, width: cur.avatarWidth, height: cur.avatarHeight, fileId: fileId, videoUrl: videoUrl, videoFileId: videoFileId), nextRevision)
         }
+        guard let outcome else {
+            return nil
+        }
+        self.revisionPromise.set(outcome.revision)
+        return outcome.info
     }
 
     public func removeAvatar(for peerKey: GGPeerKey) {
-        self.lock.withLock {
+        let nextRevision: Int32? = self.lock.withLock {
             self.ensureLoadedLocked()
             let keyStr = peerKey.stringValue
             guard var cur = self.entries[keyStr] else {
-                return
+                return nil
             }
             if cur.avatarFileId != 0 {
                 self.fileIdToPath.removeValue(forKey: cur.avatarFileId)
@@ -429,7 +439,10 @@ public final class GGVisualProfileStore {
                 self.entries[keyStr] = cur
             }
             self.persistLocked()
-            self.notifyLocked(touched: peerKey)
+            return self.recordChangeLocked(touched: peerKey)
+        }
+        if let nextRevision {
+            self.revisionPromise.set(nextRevision)
         }
     }
 

@@ -9497,7 +9497,7 @@ public enum GGStrings {
                     return GGLocalization.shared.string("menu.tab.more.nickBadge")
                 }
 
-                /// GCONNECT badges next to names
+                /// MediaTok badges next to names
                 public static var nickBadgeInfo: Swift.String {
                     return GGLocalization.shared.string("menu.tab.more.nickBadgeInfo")
                 }
@@ -9925,19 +9925,19 @@ public enum GGStrings {
                 return GGLocalization.shared.string("nickBadge.bulletin.someone")
             }
 
-            /// {name} supports GCONNECT development
+            /// {name} supports MediaTok development
             public static func supporter(name: Swift.String) -> Swift.String {
                 return GGLocalization.shared.format("nickBadge.bulletin.supporter", [("name", name)])
             }
 
-            /// {name} is on the GCONNECT team
+            /// {name} is on the MediaTok team
             public static func team(name: Swift.String) -> Swift.String {
                 return GGLocalization.shared.format("nickBadge.bulletin.team", [("name", name)])
             }
         }
 
         public enum Menu {
-            /// badge GCONNECT nickname name
+            /// badge MediaTok nickname name
             public static var keywords: Swift.String {
                 return GGLocalization.shared.string("nickBadge.menu.keywords")
             }
@@ -9957,7 +9957,7 @@ public enum GGStrings {
                 return GGLocalization.shared.string("nickBadge.menu.show")
             }
 
-            /// GCONNECT badges next to names: in chats, the chat list, contacts and profiles. The badge list is downloaded from badges.gconnect.cc — no data about you is sent
+            /// MediaTok badges next to names: in chats, the chat list, contacts and profiles. The badge list is downloaded from badges.gconnect.cc — no data about you is sent
             public static var showInfo: Swift.String {
                 return GGLocalization.shared.string("nickBadge.menu.showInfo")
             }
@@ -9989,7 +9989,7 @@ public enum GGStrings {
                 return GGLocalization.shared.string("nickBadge.screen.planCustom")
             }
 
-            /// GCONNECT badge
+            /// MediaTok badge
             public static var planStandard: Swift.String {
                 return GGLocalization.shared.string("nickBadge.screen.planStandard")
             }
@@ -10041,7 +10041,7 @@ public enum GGStrings {
                 return GGLocalization.shared.string("nickBadge.status.off")
             }
 
-            /// GCONNECT team
+            /// MediaTok team
             public static var team: Swift.String {
                 return GGLocalization.shared.string("nickBadge.status.team")
             }

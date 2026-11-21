@@ -17,10 +17,8 @@ public enum GGProfileExportModule {
         GGChatExportSettings.declare()
         GGFakeGiftsLegacy.registerMigrations()
 
-        // Nick badge: slots, the network side (off until the user turns badges on), menu.
-        GGNickBadgeSlots.register()
-        GGNickBadgeMenu.register()
-        GGNickBadgeService.shared.start()
+        // Nick badge disabled for MediaTok builds.
+        GGNickBadgeSettings.isEnabled.set(false)
 
         // Fake gifts: the profile's list, the gift screen's menu, the store per account.
         GGFakeGiftsHooks.register()

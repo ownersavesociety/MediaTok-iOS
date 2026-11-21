@@ -3,7 +3,9 @@ import UIKit
 import CoreText
 import Display
 import LegacyComponents
+import SwiftSignalKit
 import GGCore
+import GGHooks
 import GGAppearanceSettings
 
 /// Where a family's faces come from. Nothing is bundled (owner decision 2026-10-22): fonts that ship
@@ -111,66 +113,86 @@ enum GGFonts {
 
     // MARK: Launch
 
-    /// The family in effect for this launch (the setting may change; the font changes on restart).
+    /// The family currently applied (live-updated when `GGAppearanceSettings.fontFamily` changes).
     private(set) static var launchFamily: GGFontFamily = .system
-    /// The custom font in effect for this launch, if one is.
+    /// The custom font currently applied, if one is.
     private(set) static var launchCustomFont: GGCustomFont?
-    /// The bundled MediaTok font in effect for this launch, if one is.
+    /// The bundled MediaTok font currently applied, if one is.
     private(set) static var launchBundledFont: GGBundledFont?
     private static var launchSource: GGFontSource?
     /// Installed family: the face for each (weight, italic), index `weight.rawValue * 2 + (italic ? 1 : 0)`.
-    /// Written once in `register()`, before any font is requested; read-only afterwards.
+    /// Protected by `cacheLock`.
     private static var resolvedFaces: [GGResolvedFace] = []
+    private static var fontSettingDisposable: Disposable?
+    private static var cacheGeneration: Int = 0
 
-    static func register() {
+    static func reloadActiveFont() {
         GGCustomFonts.cleanUp()
         let value = GGAppearanceSettings.fontFamily.value
-        let source: GGFontSource
+        var nextFamily: GGFontFamily = .system
+        var nextCustomFont: GGCustomFont?
+        var nextBundledFont: GGBundledFont?
+        var nextSource: GGFontSource?
+        var nextFaces: [GGResolvedFace] = []
+
         if let customFont = GGCustomFonts.font(forSettingValue: value) {
-            guard let familyName = GGCustomFonts.registerForLaunch(customFont), let faces = GGFonts.resolveFaces(familyName: familyName) else {
+            if let familyName = GGCustomFonts.registerForLaunch(customFont),
+               let faces = GGFonts.resolveFaces(familyName: familyName) {
+                nextFaces = faces
+                nextCustomFont = customFont
+                nextSource = .installed(familyName)
+            } else {
                 GGLog.warning("appearance", "custom font is unreadable, using the system font")
                 GGCustomFonts.remove(customFont)
-                return
             }
-            GGFonts.resolvedFaces = faces
-            GGFonts.launchCustomFont = customFont
-            source = .installed(familyName)
         } else if let bundledFont = GGMediaTokFonts.font(forSettingValue: value) {
-            guard let familyName = GGMediaTokFonts.registerForLaunch(bundledFont), let faces = GGFonts.resolveFaces(familyName: familyName) else {
+            if let familyName = GGMediaTokFonts.registerForLaunch(bundledFont),
+               let faces = GGFonts.resolveFaces(familyName: familyName) {
+                nextFaces = faces
+                nextBundledFont = bundledFont
+                nextSource = .installed(familyName)
+            } else {
                 GGLog.warning("appearance", "bundled font is unreadable, using the system font")
-                return
             }
-            GGFonts.resolvedFaces = faces
-            GGFonts.launchBundledFont = bundledFont
-            source = .installed(familyName)
+        } else if GGCustomFonts.isCustomValue(value) || GGMediaTokFonts.isBundledValue(value) {
+            // A removed custom font (or one from an imported settings file): the system font.
+            GGAppearanceSettings.fontFamily.reset()
         } else {
-            if GGCustomFonts.isCustomValue(value) || GGMediaTokFonts.isBundledValue(value) {
-                // A removed custom font (or one from an imported settings file): the system font.
-                GGAppearanceSettings.fontFamily.reset()
-                return
-            }
             let family = GGFontFamily.resolved(value)
-            guard let familySource = GGFonts.source(family) else {
-                // The system font: no handlers, upstream fonts untouched.
-                return
-            }
-            switch familySource {
-            case let .design(design, _):
-                guard UIFont.systemFont(ofSize: 17.0).fontDescriptor.withDesign(design) != nil else {
-                    GGLog.warning("appearance", "system font design is not available, using the system font")
-                    return
+            if let familySource = GGFonts.source(family) {
+                switch familySource {
+                case let .design(design, _):
+                    if UIFont.systemFont(ofSize: 17.0).fontDescriptor.withDesign(design) != nil {
+                        nextFamily = family
+                        nextSource = familySource
+                    } else {
+                        GGLog.warning("appearance", "system font design is not available, using the system font")
+                    }
+                case let .installed(name):
+                    if let faces = GGFonts.resolveFaces(familyName: name) {
+                        nextFamily = family
+                        nextFaces = faces
+                        nextSource = familySource
+                    } else {
+                        GGLog.warning("appearance", "font family is not installed, using the system font")
+                    }
                 }
-            case let .installed(name):
-                guard let faces = GGFonts.resolveFaces(familyName: name) else {
-                    GGLog.warning("appearance", "font family is not installed, using the system font")
-                    return
-                }
-                GGFonts.resolvedFaces = faces
             }
-            GGFonts.launchFamily = family
-            source = familySource
         }
-        GGFonts.launchSource = source
+
+        GGFonts.cacheLock.lock()
+        GGFonts.launchFamily = nextFamily
+        GGFonts.launchCustomFont = nextCustomFont
+        GGFonts.launchBundledFont = nextBundledFont
+        GGFonts.launchSource = nextSource
+        GGFonts.resolvedFaces = nextFaces
+        GGFonts.cache.removeAll()
+        GGFonts.cacheGeneration &+= 1
+        GGFonts.cacheLock.unlock()
+    }
+
+    static func register() {
+        GGFonts.reloadActiveFont()
 
         GGFontHooks.font.register({ request in
             return GGFonts.font(for: request)
@@ -191,6 +213,18 @@ enum GGFonts {
                 fontWeight = .regular
             }
             return GGFonts.font(size: size, weight: fontWeight, italic: italic, monospacedDigits: false)
+        })
+
+        var lastAppliedValue = GGAppearanceSettings.fontFamily.value
+        GGFonts.fontSettingDisposable?.dispose()
+        GGFonts.fontSettingDisposable = (GGAppearanceSettings.fontFamily.signal
+        |> deliverOnMainQueue).start(next: { newValue in
+            if newValue == lastAppliedValue {
+                return
+            }
+            lastAppliedValue = newValue
+            GGFonts.reloadActiveFont()
+            GGThemeHooks.invalidate()
         })
     }
 
@@ -316,15 +350,18 @@ enum GGFonts {
     }
 
     static func font(size: CGFloat, weight: GGFontWeight, italic: Bool, monospacedDigits: Bool) -> UIFont? {
-        guard let source = GGFonts.launchSource else {
-            return nil
-        }
         let key = (Int(size * 100.0) << 5) | (weight.rawValue << 2) | (italic ? 2 : 0) | (monospacedDigits ? 1 : 0)
         GGFonts.cacheLock.lock()
+        guard let source = GGFonts.launchSource else {
+            GGFonts.cacheLock.unlock()
+            return nil
+        }
         if let font = GGFonts.cache[key] {
             GGFonts.cacheLock.unlock()
             return font
         }
+        let facesSnapshot = GGFonts.resolvedFaces
+        let generation = GGFonts.cacheGeneration
         GGFonts.cacheLock.unlock()
 
         var descriptor: UIFontDescriptor
@@ -339,10 +376,10 @@ enum GGFonts {
             }
         case .installed:
             let index = weight.rawValue * 2 + (italic ? 1 : 0)
-            guard index < GGFonts.resolvedFaces.count else {
+            guard index < facesSnapshot.count else {
                 return nil
             }
-            let face = GGFonts.resolvedFaces[index]
+            let face = facesSnapshot[index]
             guard let base = UIFont(name: face.name, size: size) else {
                 return nil
             }
@@ -364,7 +401,9 @@ enum GGFonts {
         let font = UIFont(descriptor: descriptor, size: size)
 
         GGFonts.cacheLock.lock()
-        GGFonts.cache[key] = font
+        if GGFonts.cacheGeneration == generation {
+            GGFonts.cache[key] = font
+        }
         GGFonts.cacheLock.unlock()
         return font
     }
@@ -427,15 +466,9 @@ enum GGFonts {
         return GGMediaTokFonts.font(forSettingValue: GGAppearanceSettings.fontFamily.value)
     }
 
-    /// The chosen font differs from the one this launch applied: the menu says «restart».
+    /// Font changes apply live through `GGThemeHooks.invalidate()`.
     static var needsRestart: Bool {
-        if let selectedCustomFont = GGFonts.selectedCustomFont {
-            return selectedCustomFont != GGFonts.launchCustomFont
-        }
-        if let selectedBundledFont = GGFonts.selectedBundledFont {
-            return selectedBundledFont != GGFonts.launchBundledFont
-        }
-        return GGFonts.launchCustomFont != nil || GGFonts.launchBundledFont != nil || GGFonts.selectedFamily != GGFonts.launchFamily
+        return false
     }
 
     /// The name of the chosen font (the font row's value in «Сообщения»).

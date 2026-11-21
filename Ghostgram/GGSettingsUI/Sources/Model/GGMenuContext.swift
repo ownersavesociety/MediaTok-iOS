@@ -111,19 +111,7 @@ final class GGMenuScreenHandle {
     }
 
     func presentNative(_ controller: UIViewController) {
-        guard let rootController = self.controller?.view.window?.rootViewController else {
-            return
-        }
-        if let popover = controller.popoverPresentationController {
-            popover.sourceView = rootController.view
-            popover.sourceRect = CGRect(x: rootController.view.bounds.midX, y: rootController.view.bounds.midY, width: 0.0, height: 0.0)
-            popover.permittedArrowDirections = []
-        }
-        var presenter = rootController
-        while let presented = presenter.presentedViewController {
-            presenter = presented
-        }
-        presenter.present(controller, animated: true)
+        GGModalPresenter.presentOnTopmost(controller, preferredRoot: self.controller?.view.window?.rootViewController)
     }
 
     /// Every move to another menu screen goes through the access gates (`GGMenuAccessGates`).
@@ -151,5 +139,154 @@ final class GGMenuScreenHandle {
         ggPresentToast(context: self.context, text: text, present: { [weak self] controller in
             self?.present(controller)
         })
+    }
+}
+
+/// Safe UIKit modal/sheet presentation helper: skips dismissing view controllers,
+/// retries briefly during transition animations, and guarantees iPad/sheet popover anchors.
+public enum GGModalPresenter {
+    public static func activeRootViewController(preferredRoot: UIViewController? = nil) -> UIViewController? {
+        if let preferredRoot, preferredRoot.viewIfLoaded?.window != nil {
+            return preferredRoot
+        }
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let windows = scenes.flatMap { $0.windows }
+        return windows.first(where: { $0.isKeyWindow && $0.rootViewController != nil })?.rootViewController
+            ?? windows.first(where: { $0.rootViewController != nil })?.rootViewController
+    }
+
+    public static func configurePopover(
+        _ controller: UIViewController,
+        hostView: UIView,
+        sourceView: UIView? = nil,
+        sourceRect: CGRect? = nil
+    ) {
+        guard let popover = controller.popoverPresentationController else { return }
+        if let sourceView, sourceView.window != nil, !sourceView.bounds.isEmpty {
+            popover.sourceView = sourceView
+            popover.sourceRect = sourceRect ?? sourceView.bounds
+        } else {
+            popover.sourceView = hostView
+            popover.sourceRect = CGRect(x: hostView.bounds.midX, y: hostView.bounds.midY, width: 0.0, height: 0.0)
+            popover.permittedArrowDirections = []
+        }
+    }
+
+    public static func presentOnTopmost(
+        _ controller: UIViewController,
+        preferredRoot: UIViewController? = nil,
+        sourceView: UIView? = nil,
+        sourceRect: CGRect? = nil,
+        attempt: Int = 0
+    ) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async {
+                self.presentOnTopmost(
+                    controller,
+                    preferredRoot: preferredRoot,
+                    sourceView: sourceView,
+                    sourceRect: sourceRect,
+                    attempt: attempt
+                )
+            }
+            return
+        }
+        guard controller.presentingViewController == nil,
+              let root = self.activeRootViewController(preferredRoot: preferredRoot) else {
+            return
+        }
+        var presenter = root
+        while let presented = presenter.presentedViewController {
+            if presented.isBeingDismissed {
+                if attempt < 8 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                        self.presentOnTopmost(
+                            controller,
+                            preferredRoot: preferredRoot,
+                            sourceView: sourceView,
+                            sourceRect: sourceRect,
+                            attempt: attempt + 1
+                        )
+                    }
+                }
+                return
+            }
+            presenter = presented
+        }
+        if presenter.isBeingDismissed {
+            if attempt < 8 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                    self.presentOnTopmost(
+                        controller,
+                        preferredRoot: preferredRoot,
+                        sourceView: sourceView,
+                        sourceRect: sourceRect,
+                        attempt: attempt + 1
+                    )
+                }
+            }
+            return
+        }
+        self.configurePopover(controller, hostView: presenter.view, sourceView: sourceView, sourceRect: sourceRect)
+        presenter.present(controller, animated: true)
+    }
+
+    public static func presentWhenReady(
+        _ controller: UIViewController,
+        from host: UIViewController,
+        sourceView: UIView? = nil,
+        sourceRect: CGRect? = nil,
+        attempt: Int = 0
+    ) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak host] in
+                guard let host else { return }
+                self.presentWhenReady(
+                    controller,
+                    from: host,
+                    sourceView: sourceView,
+                    sourceRect: sourceRect,
+                    attempt: attempt
+                )
+            }
+            return
+        }
+        guard !host.isBeingDismissed,
+              !host.isMovingFromParent,
+              controller.presentingViewController == nil else {
+            return
+        }
+        if let existing = host.presentedViewController {
+            if existing.isBeingDismissed && attempt < 8 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak host] in
+                    guard let host else { return }
+                    self.presentWhenReady(
+                        controller,
+                        from: host,
+                        sourceView: sourceView,
+                        sourceRect: sourceRect,
+                        attempt: attempt + 1
+                    )
+                }
+            }
+            return
+        }
+        if host.viewIfLoaded?.window == nil {
+            if attempt < 4 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak host] in
+                    guard let host else { return }
+                    self.presentWhenReady(
+                        controller,
+                        from: host,
+                        sourceView: sourceView,
+                        sourceRect: sourceRect,
+                        attempt: attempt + 1
+                    )
+                }
+            }
+            return
+        }
+        self.configurePopover(controller, hostView: host.view, sourceView: sourceView, sourceRect: sourceRect)
+        host.present(controller, animated: true)
     }
 }

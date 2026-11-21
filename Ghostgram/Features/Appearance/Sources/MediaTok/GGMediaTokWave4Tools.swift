@@ -923,22 +923,7 @@ enum GGMediaTokWave4Tools {
     }
 
     private static func presentOnRoot(_ controller: UIViewController) {
-        DispatchQueue.main.async {
-            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            guard let root = scenes.flatMap({ $0.windows }).first(where: { $0.isKeyWindow })?.rootViewController else {
-                return
-            }
-            var presenter = root
-            while let next = presenter.presentedViewController {
-                presenter = next
-            }
-            if let pop = controller.popoverPresentationController {
-                pop.sourceView = presenter.view
-                pop.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0.0, height: 0.0)
-                pop.permittedArrowDirections = []
-            }
-            presenter.present(controller, animated: true)
-        }
+        GGModalPresenter.presentOnTopmost(controller)
     }
 
     private static func showToast(context: AccountContext, text: String) {

@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import CoreImage
 import ObjectiveC
 import AVFoundation
 import PhotosUI
@@ -559,10 +560,9 @@ final class GGDiscordProfileStore {
         }
     }
 
-    private func bumpRevisionLocked() {
+    private func recordRevisionLocked() -> Int32 {
         self.revisionCounter = self.revisionCounter &+ 1
-        let next = self.revisionCounter
-        self.revisionPromise.set(next)
+        return self.revisionCounter
     }
 
     static func keyString(for peerId: PeerId) -> String {
@@ -723,8 +723,9 @@ final class GGDiscordProfileStore {
             try? FileManager.default.removeItem(at: self.musicDir().appendingPathComponent(obsolete))
         }
         self.persistLocked()
-        self.bumpRevisionLocked()
+        let nextRevision = self.recordRevisionLocked()
         self.lock.unlock()
+        self.revisionPromise.set(nextRevision)
 
         if publishGlobally {
             self.markOwnPeer(key, isOwn: !updated.isEmpty)
@@ -1208,8 +1209,9 @@ final class GGDiscordProfileStore {
                     self.entries[key] = remote
                 }
                 self.persistLocked()
-                self.bumpRevisionLocked()
+                let nextRevision = self.recordRevisionLocked()
                 self.lock.unlock()
+                self.revisionPromise.set(nextRevision)
                 if let onUpdated {
                     DispatchQueue.main.async { onUpdated() }
                 }
@@ -1922,6 +1924,185 @@ private final class GGAvatarFrameRingView: UIView {
 
 // MARK: - Profile Header & Info Hook Integration
 
+private enum GGBannerVerticalMode {
+    case smartBlur
+    case topCrop
+    case centerCrop
+}
+
+private enum GGDiscordBannerProcessor {
+    private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+
+    static func normalizedOrientationImage(_ image: UIImage) -> UIImage {
+        if image.imageOrientation == .up {
+            return image
+        }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+    }
+
+    static func isPortrait(_ image: UIImage) -> Bool {
+        let norm = self.normalizedOrientationImage(image)
+        guard norm.size.width > 0.0, norm.size.height > 0.0 else { return false }
+        return norm.size.height > norm.size.width * 1.05
+    }
+
+    static func displayBannerImage(from image: UIImage) -> UIImage {
+        let norm = self.normalizedOrientationImage(image)
+        if self.isPortrait(norm) {
+            return self.makeSmartVerticalComposite(from: norm)
+        }
+        return norm
+    }
+
+    static func makeSmartVerticalComposite(from image: UIImage, targetAspect: CGFloat = 1.65) -> UIImage {
+        let source = self.normalizedOrientationImage(image)
+        let srcW = max(1.0, source.size.width)
+        let srcH = max(1.0, source.size.height)
+        let canvasW: CGFloat = 1120.0
+        let canvasH: CGFloat = (canvasW / max(1.2, targetAspect)).rounded()
+        let canvasSize = CGSize(width: canvasW, height: canvasH)
+        let canvasRect = CGRect(origin: .zero, size: canvasSize)
+
+        let bgScale = max(canvasW / srcW, canvasH / srcH)
+        let bgDrawSize = CGSize(width: srcW * bgScale, height: srcH * bgScale)
+        let bgDrawRect = CGRect(
+            x: (canvasW - bgDrawSize.width) / 2.0,
+            y: (canvasH - bgDrawSize.height) / 2.0,
+            width: bgDrawSize.width,
+            height: bgDrawSize.height
+        )
+        let bgFormat = UIGraphicsImageRendererFormat()
+        bgFormat.scale = 1.0
+        bgFormat.opaque = true
+        let bgBase = UIGraphicsImageRenderer(size: canvasSize, format: bgFormat).image { _ in
+            UIColor(rgb: 0x10131C).setFill()
+            UIRectFill(canvasRect)
+            source.draw(in: bgDrawRect)
+        }
+
+        var blurredBg: UIImage = bgBase
+        if let ciInput = CIImage(image: bgBase),
+           let filter = CIFilter(name: "CIGaussianBlur") {
+            let clamped = ciInput.clampedToExtent()
+            filter.setValue(clamped, forKey: kCIInputImageKey)
+            filter.setValue(28.0, forKey: kCIInputRadiusKey)
+            if let output = filter.outputImage {
+                let cropped = output.cropped(to: ciInput.extent)
+                if let cg = self.ciContext.createCGImage(cropped, from: ciInput.extent) {
+                    blurredBg = UIImage(cgImage: cg)
+                }
+            }
+        }
+
+        let fgAspect = srcW / srcH
+        var cardH = canvasH * 0.90
+        var cardW = cardH * fgAspect
+        let maxCardW = canvasW * 0.72
+        if cardW > maxCardW {
+            cardW = maxCardW
+            cardH = cardW / max(0.01, fgAspect)
+        }
+        let cardRect = CGRect(
+            x: ((canvasW - cardW) / 2.0).rounded(),
+            y: ((canvasH - cardH) / 2.0).rounded(),
+            width: cardW.rounded(),
+            height: cardH.rounded()
+        )
+
+        let outFormat = UIGraphicsImageRendererFormat()
+        outFormat.scale = 1.0
+        outFormat.opaque = true
+        return UIGraphicsImageRenderer(size: canvasSize, format: outFormat).image { ctx in
+            blurredBg.draw(in: canvasRect)
+            UIColor.black.withAlphaComponent(0.32).setFill()
+            ctx.fill(canvasRect)
+
+            let cardPath = UIBezierPath(roundedRect: cardRect, cornerRadius: 24.0)
+            ctx.cgContext.saveGState()
+            cardPath.addClip()
+            source.draw(in: cardRect)
+            ctx.cgContext.restoreGState()
+
+            UIColor.white.withAlphaComponent(0.24).setStroke()
+            cardPath.lineWidth = 2.0
+            cardPath.stroke()
+        }
+    }
+
+    static func downscaleToMaxDimension(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
+        let norm = self.normalizedOrientationImage(image)
+        let pxW = norm.size.width * norm.scale
+        let pxH = norm.size.height * norm.scale
+        let maxSide = max(pxW, pxH)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        format.opaque = true
+        let targetSize: CGSize
+        if maxSide > maxDimension && maxSide > 0.0 {
+            let factor = maxDimension / maxSide
+            targetSize = CGSize(width: max(1.0, (pxW * factor).rounded()), height: max(1.0, (pxH * factor).rounded()))
+        } else {
+            targetSize = CGSize(width: max(1.0, pxW.rounded()), height: max(1.0, pxH.rounded()))
+        }
+        return UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
+            UIColor.black.setFill()
+            UIRectFill(CGRect(origin: .zero, size: targetSize))
+            norm.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+    }
+
+    static func renderNormalizedBannerData(from image: UIImage, verticalMode: GGBannerVerticalMode) -> Data? {
+        let norm = self.normalizedOrientationImage(image)
+        guard norm.size.width > 1.0, norm.size.height > 1.0 else { return nil }
+        if self.isPortrait(norm) {
+            switch verticalMode {
+            case .smartBlur:
+                return self.makeSmartVerticalComposite(from: norm, targetAspect: 1.65).jpegData(compressionQuality: 0.91)
+            case .topCrop, .centerCrop:
+                let full = self.downscaleToMaxDimension(norm, maxDimension: 3840.0)
+                guard let cg = full.cgImage else {
+                    return full.jpegData(compressionQuality: 0.91)
+                }
+                let srcW = CGFloat(cg.width)
+                let srcH = CGFloat(cg.height)
+                let cropH = min(srcH, max(1.0, (srcW / 1.65).rounded()))
+                let cropY: CGFloat = (verticalMode == .topCrop) ? 0.0 : max(0.0, ((srcH - cropH) / 2.0).rounded())
+                let cropRect = CGRect(x: 0.0, y: cropY, width: srcW, height: cropH)
+                if let cropped = cg.cropping(to: cropRect) {
+                    return UIImage(cgImage: cropped).jpegData(compressionQuality: 0.92)
+                }
+                return full.jpegData(compressionQuality: 0.91)
+            }
+        }
+        return self.downscaleToMaxDimension(norm, maxDimension: 3840.0).jpegData(compressionQuality: 0.92)
+    }
+
+    static func loadImage(from url: URL) -> UIImage? {
+        if let img = UIImage(contentsOfFile: url.path) {
+            return self.normalizedOrientationImage(img)
+        }
+        if let data = try? Data(contentsOf: url), let img = UIImage(data: data) {
+            return self.normalizedOrientationImage(img)
+        }
+        if let src = CGImageSourceCreateWithURL(url as CFURL, nil) {
+            let opts: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 3840
+            ]
+            if let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) {
+                return UIImage(cgImage: cg)
+            }
+        }
+        return nil
+    }
+}
+
 private final class GGDiscordHeaderOverlay {
     private static var assocKey: UInt8 = 0
 
@@ -2005,7 +2186,33 @@ private final class GGDiscordHeaderOverlay {
         let profile = GGDiscordProfileStore.shared.profile(for: peerId)
         let bannerAnchor = self.bannerContainer ?? node.view.subviews.first
 
-        // 1. 4K Banner Image
+        // 1. 4K Banner Image (rounded card with safe bounds & smart vertical framing)
+        let allCorners: CACornerMask = [
+            .layerMinXMinYCorner,
+            .layerMaxXMinYCorner,
+            .layerMinXMaxYCorner,
+            .layerMaxXMaxYCorner
+        ]
+        var totalWidth: CGFloat = 0.0
+        var rawHeight: CGFloat = 0.0
+        var cardRect: CGRect = .zero
+        var shouldHideBanner = true
+        if let anchor = bannerAnchor {
+            totalWidth = max(self.lastWidth, anchor.frame.width)
+            rawHeight = max(0.0, anchor.frame.maxY)
+            shouldHideBanner = totalWidth < 40.0 || rawHeight < 88.0 || rawHeight > 440.0
+            cardRect = CGRect(
+                x: 8.0,
+                y: 4.0,
+                width: max(0.0, totalWidth - 16.0),
+                height: max(0.0, rawHeight - 8.0)
+            )
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
         var hasBanner = false
         if let profile,
            let bannerUrl = GGDiscordProfileStore.shared.bannerFileURL(for: profile),
@@ -2019,6 +2226,11 @@ private final class GGDiscordHeaderOverlay {
                 iv.contentMode = .scaleAspectFill
                 iv.clipsToBounds = true
                 iv.isUserInteractionEnabled = false
+                iv.layer.cornerRadius = 22.0
+                iv.layer.cornerCurve = .continuous
+                iv.layer.maskedCorners = allCorners
+                iv.layer.borderWidth = 1.0
+                iv.layer.borderColor = UIColor.white.withAlphaComponent(0.14).cgColor
                 let scrim = CAGradientLayer()
                 scrim.colors = [
                     UIColor.black.withAlphaComponent(0.18).cgColor,
@@ -2031,14 +2243,18 @@ private final class GGDiscordHeaderOverlay {
             }
             if self.loadedBannerFile != profile.bannerFileName {
                 self.loadedBannerFile = profile.bannerFileName
-                iv.image = UIImage(contentsOfFile: bannerUrl.path)
+                iv.image = GGDiscordBannerProcessor.loadImage(from: bannerUrl).map {
+                    GGDiscordBannerProcessor.displayBannerImage(from: $0)
+                }
             }
             if iv.superview !== node.view {
                 node.view.insertSubview(iv, aboveSubview: anchor)
             }
-            let rect = CGRect(x: 0.0, y: 0.0, width: max(self.lastWidth, anchor.frame.width), height: max(0.0, anchor.frame.maxY))
-            iv.frame = rect
-            self.bannerScrimLayer?.frame = iv.bounds
+            iv.isHidden = shouldHideBanner
+            if !shouldHideBanner {
+                iv.frame = cardRect
+                self.bannerScrimLayer?.frame = iv.bounds
+            }
         } else {
             self.bannerImageView?.removeFromSuperview()
             self.bannerImageView = nil
@@ -2061,6 +2277,9 @@ private final class GGDiscordHeaderOverlay {
                 tv = UIView()
                 tv.isUserInteractionEnabled = false
                 tv.clipsToBounds = true
+                tv.layer.cornerRadius = 22.0
+                tv.layer.cornerCurve = .continuous
+                tv.layer.maskedCorners = allCorners
                 gl = CAGradientLayer()
                 gl.startPoint = CGPoint(x: 0.0, y: 0.0)
                 gl.endPoint = CGPoint(x: 1.0, y: 1.0)
@@ -2074,8 +2293,11 @@ private final class GGDiscordHeaderOverlay {
             if tv.superview !== node.view {
                 node.view.insertSubview(tv, aboveSubview: targetBelow)
             }
-            tv.frame = CGRect(x: 0.0, y: 0.0, width: max(self.lastWidth, anchor.frame.width), height: max(0.0, anchor.frame.maxY))
-            gl.frame = tv.bounds
+            tv.isHidden = shouldHideBanner
+            if !shouldHideBanner {
+                tv.frame = cardRect
+                gl.frame = tv.bounds
+            }
         } else {
             self.nitroTintView?.removeFromSuperview()
             self.nitroTintView = nil
@@ -2090,13 +2312,20 @@ private final class GGDiscordHeaderOverlay {
                 ev = existing
             } else {
                 ev = GGDiscordEffectView(frame: .zero)
+                ev.clipsToBounds = true
+                ev.layer.cornerRadius = 22.0
+                ev.layer.cornerCurve = .continuous
+                ev.layer.maskedCorners = allCorners
                 self.effectView = ev
             }
             let targetBelow = self.nitroTintView ?? self.bannerImageView ?? anchor
             if ev.superview !== node.view {
                 node.view.insertSubview(ev, aboveSubview: targetBelow)
             }
-            ev.frame = CGRect(x: 0.0, y: 0.0, width: max(self.lastWidth, anchor.frame.width), height: max(0.0, anchor.frame.maxY))
+            ev.isHidden = shouldHideBanner
+            if !shouldHideBanner {
+                ev.frame = cardRect
+            }
             ev.configure(effectId: effectId)
         } else {
             self.effectView?.removeFromSuperview()
@@ -2434,20 +2663,7 @@ enum GGMediaTokDiscordProfile {
                 GGMediaTokDiscordProfile.copyAndToast(summary.title, context: context, controller: controller)
             }))
             sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            guard let root = scenes.flatMap({ $0.windows }).first(where: { $0.isKeyWindow })?.rootViewController else {
-                return
-            }
-            var presenter = root
-            while let next = presenter.presentedViewController {
-                presenter = next
-            }
-            if let pop = sheet.popoverPresentationController {
-                pop.sourceView = presenter.view
-                pop.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0.0, height: 0.0)
-                pop.permittedArrowDirections = []
-            }
-            presenter.present(sheet, animated: true)
+            GGModalPresenter.presentOnTopmost(sheet)
         }
     }
 
@@ -2484,15 +2700,7 @@ enum GGMediaTokDiscordProfile {
             let nav = UINavigationController(rootViewController: vc)
             nav.overrideUserInterfaceStyle = .dark
             nav.modalPresentationStyle = .pageSheet
-            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            guard let root = scenes.flatMap({ $0.windows }).first(where: { $0.isKeyWindow })?.rootViewController else {
-                return
-            }
-            var presenter = root
-            while let next = presenter.presentedViewController {
-                presenter = next
-            }
-            presenter.present(nav, animated: true)
+            GGModalPresenter.presentOnTopmost(nav)
         }
     }
 
@@ -2571,7 +2779,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
     }
 
     deinit {
-        self.stopRecording(saveIfValid: false)
+        self.invalidateRecorderOnly()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -2624,10 +2832,14 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         self.bannerPreview.backgroundColor = .secondarySystemGroupedBackground
         self.bannerPreview.contentMode = .scaleAspectFill
         self.bannerPreview.clipsToBounds = true
-        self.bannerPreview.layer.cornerRadius = 12.0
-        self.bannerPreview.heightAnchor.constraint(equalToConstant: 112.0).isActive = true
-        if let url = GGDiscordProfileStore.shared.bannerFileURL(for: self.draft) {
-            self.bannerPreview.image = UIImage(contentsOfFile: url.path)
+        self.bannerPreview.layer.cornerRadius = 20.0
+        self.bannerPreview.layer.cornerCurve = .continuous
+        self.bannerPreview.layer.borderWidth = 1.0
+        self.bannerPreview.layer.borderColor = UIColor.white.withAlphaComponent(0.14).cgColor
+        self.bannerPreview.heightAnchor.constraint(equalToConstant: 132.0).isActive = true
+        if let url = GGDiscordProfileStore.shared.bannerFileURL(for: self.draft),
+           let img = GGDiscordBannerProcessor.loadImage(from: url) {
+            self.bannerPreview.image = GGDiscordBannerProcessor.displayBannerImage(from: img)
         }
         stack.addArrangedSubview(self.bannerPreview)
 
@@ -2829,20 +3041,79 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         config.filter = .images
         let picker = PHPickerViewController(configuration: config)
         picker.delegate = self
-        self.present(picker, animated: true)
+        GGModalPresenter.presentWhenReady(picker, from: self)
     }
 
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        guard let provider = results.first?.itemProvider,
-              provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else { return }
-        provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { [weak self] url, _ in
-            guard let url, let jpegData = GGDiscordProfileEditorViewController.encode4kBanner(from: url) else { return }
+        guard let provider = results.first?.itemProvider else { return }
+
+        let handleImage: (UIImage) -> Void = { [weak self] rawImage in
+            let normalized = GGDiscordBannerProcessor.normalizedOrientationImage(rawImage)
+            guard let jpegData = GGDiscordBannerProcessor.renderNormalizedBannerData(from: normalized, verticalMode: .smartBlur),
+                  let previewImg = UIImage(data: jpegData) else {
+                return
+            }
+            let isPortrait = GGDiscordBannerProcessor.isPortrait(normalized)
             DispatchQueue.main.async {
                 guard let strongSelf = self else { return }
                 strongSelf.pendingBannerData = jpegData
                 strongSelf.draft.bannerUrl = ""
-                strongSelf.bannerPreview.image = UIImage(data: jpegData)
+                strongSelf.bannerPreview.image = previewImg
+                if isPortrait {
+                    let applyMode: (GGBannerVerticalMode) -> Void = { mode in
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            guard let updatedData = GGDiscordBannerProcessor.renderNormalizedBannerData(from: normalized, verticalMode: mode),
+                                  let updatedImg = UIImage(data: updatedData) else {
+                                return
+                            }
+                            DispatchQueue.main.async {
+                                guard let innerSelf = self else { return }
+                                innerSelf.pendingBannerData = updatedData
+                                innerSelf.draft.bannerUrl = ""
+                                innerSelf.bannerPreview.image = updatedImg
+                            }
+                        }
+                    }
+                    let sheet = UIAlertController(
+                        title: "📱 Вертикальный баннер",
+                        message: "Фото вертикальное — мы уже красиво вписали его в размытый 16:10 фон. При желании выберите другой режим:",
+                        preferredStyle: .actionSheet
+                    )
+                    sheet.addAction(UIAlertAction(title: "✨ Размытый фон + по центру", style: .default, handler: { _ in
+                        applyMode(.smartBlur)
+                    }))
+                    sheet.addAction(UIAlertAction(title: "⬆️ Обрезать верх (портрет / лицо)", style: .default, handler: { _ in
+                        applyMode(.topCrop)
+                    }))
+                    sheet.addAction(UIAlertAction(title: "🎯 Обрезать по центру", style: .default, handler: { _ in
+                        applyMode(.centerCrop)
+                    }))
+                    sheet.addAction(UIAlertAction(title: "Готово", style: .cancel))
+                    GGModalPresenter.presentWhenReady(sheet, from: strongSelf)
+                }
+            }
+        }
+
+        if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+            provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, _ in
+                if let url, let img = GGDiscordBannerProcessor.loadImage(from: url) {
+                    handleImage(img)
+                    return
+                }
+                if provider.canLoadObject(ofClass: UIImage.self) {
+                    provider.loadObject(ofClass: UIImage.self) { obj, _ in
+                        if let img = obj as? UIImage {
+                            handleImage(img)
+                        }
+                    }
+                }
+            }
+        } else if provider.canLoadObject(ofClass: UIImage.self) {
+            provider.loadObject(ofClass: UIImage.self) { obj, _ in
+                if let img = obj as? UIImage {
+                    handleImage(img)
+                }
             }
         }
     }
@@ -2852,7 +3123,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.audio, .mp3, .mpeg4Audio], asCopy: true)
         picker.allowsMultipleSelection = true
         picker.delegate = self
-        self.present(picker, animated: true)
+        GGModalPresenter.presentWhenReady(picker, from: self)
     }
 
     @objc private func pickVoiceFileTapped() {
@@ -2860,7 +3131,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.audio, .mp3, .mpeg4Audio], asCopy: true)
         picker.allowsMultipleSelection = false
         picker.delegate = self
-        self.present(picker, animated: true)
+        GGModalPresenter.presentWhenReady(picker, from: self)
     }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
@@ -2911,8 +3182,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
             }))
         }
         sheet.addAction(UIAlertAction(title: "Готово", style: .cancel))
-        self.configurePopover(sheet, source: self.playlistStatusLabel)
-        self.present(sheet, animated: true)
+        GGModalPresenter.presentWhenReady(sheet, from: self, sourceView: self.playlistStatusLabel)
     }
 
     @objc private func recordVoiceTapped() {
@@ -2966,6 +3236,21 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         self.refreshPickers()
     }
 
+    private func invalidateRecorderOnly() {
+        self.recordTimer?.invalidate()
+        self.recordTimer = nil
+        if let recorder = self.audioRecorder {
+            if recorder.isRecording {
+                recorder.stop()
+            }
+            self.audioRecorder = nil
+        }
+        if let tempUrl = self.recordTempUrl {
+            try? FileManager.default.removeItem(at: tempUrl)
+            self.recordTempUrl = nil
+        }
+    }
+
     private func stopRecording(saveIfValid: Bool) {
         self.recordTimer?.invalidate()
         self.recordTimer = nil
@@ -2996,21 +3281,6 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
         self.refreshPickers()
     }
 
-    private static func encode4kBanner(from url: URL) -> Data? {
-        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        let opts: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 3840
-        ]
-        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
-        let out = NSMutableData()
-        guard let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(dest, cg, [kCGImageDestinationLossyCompressionQuality: 0.92] as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { return nil }
-        return out as Data
-    }
-
     @objc private func clearBannerTapped() {
         self.pendingBannerData = nil
         self.draft.bannerFileName = ""
@@ -3027,8 +3297,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
             }))
         }
         sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        self.configurePopover(sheet, source: self.nitroButton)
-        self.present(sheet, animated: true)
+        GGModalPresenter.presentWhenReady(sheet, from: self, sourceView: self.nitroButton)
     }
 
     @objc private func pickEffectTapped() {
@@ -3040,8 +3309,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
             }))
         }
         sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        self.configurePopover(sheet, source: self.effectButton)
-        self.present(sheet, animated: true)
+        GGModalPresenter.presentWhenReady(sheet, from: self, sourceView: self.effectButton)
     }
 
     @objc private func pickFrameTapped() {
@@ -3053,8 +3321,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
             }))
         }
         sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        self.configurePopover(sheet, source: self.frameButton)
-        self.present(sheet, animated: true)
+        GGModalPresenter.presentWhenReady(sheet, from: self, sourceView: self.frameButton)
     }
 
     @objc private func pickMusicServiceTapped() {
@@ -3066,15 +3333,7 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
             }))
         }
         sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        self.configurePopover(sheet, source: self.musicServiceButton)
-        self.present(sheet, animated: true)
-    }
-
-    private func configurePopover(_ sheet: UIAlertController, source: UIView) {
-        if let pop = sheet.popoverPresentationController {
-            pop.sourceView = source
-            pop.sourceRect = source.bounds
-        }
+        GGModalPresenter.presentWhenReady(sheet, from: self, sourceView: self.musicServiceButton)
     }
 
     @objc private func forceSyncTapped() {
@@ -3095,8 +3354,9 @@ private final class GGDiscordProfileEditorViewController: UIViewController, PHPi
             strongSelf.tiktokField.text = loaded.tiktokInput
             strongSelf.kickField.text = loaded.kickInput
             strongSelf.discordField.text = loaded.discordTag
-            if let url = GGDiscordProfileStore.shared.bannerFileURL(for: loaded) {
-                strongSelf.bannerPreview.image = UIImage(contentsOfFile: url.path)
+            if let url = GGDiscordProfileStore.shared.bannerFileURL(for: loaded),
+               let img = GGDiscordBannerProcessor.loadImage(from: url) {
+                strongSelf.bannerPreview.image = GGDiscordBannerProcessor.displayBannerImage(from: img)
             }
             strongSelf.refreshPickers()
             strongSelf.onDone?()

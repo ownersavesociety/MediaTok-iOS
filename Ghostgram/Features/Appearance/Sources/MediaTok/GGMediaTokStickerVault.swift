@@ -584,15 +584,7 @@ enum GGMediaTokStickerVault {
             let nav = UINavigationController(rootViewController: vc)
             nav.overrideUserInterfaceStyle = .dark
             nav.modalPresentationStyle = .pageSheet
-            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            guard let root = scenes.flatMap({ $0.windows }).first(where: { $0.isKeyWindow })?.rootViewController else {
-                return
-            }
-            var presenter = root
-            while let next = presenter.presentedViewController {
-                presenter = next
-            }
-            presenter.present(nav, animated: true)
+            GGModalPresenter.presentOnTopmost(nav)
         }
     }
 
@@ -828,7 +820,7 @@ private final class GGStickerVaultPickerViewController: UIViewController,
                     strongSelf.reloadResults()
                     let info = UIAlertController(title: "✅ ИИ добавил теги", message: tags.joined(separator: ", "), preferredStyle: .alert)
                     info.addAction(UIAlertAction(title: "OK", style: .default))
-                    strongSelf.present(info, animated: true)
+                    GGModalPresenter.presentWhenReady(info, from: strongSelf)
                 }
             }
         }))
@@ -842,12 +834,7 @@ private final class GGStickerVaultPickerViewController: UIViewController,
             self?.reloadResults()
         }))
         sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        if let pop = sheet.popoverPresentationController {
-            pop.sourceView = self.view
-            pop.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 0.0, height: 0.0)
-            pop.permittedArrowDirections = []
-        }
-        self.present(sheet, animated: true)
+        GGModalPresenter.presentWhenReady(sheet, from: self)
     }
 
     private func presentTagEditor(entry: GGMediaTokCoreLogic.StickerEntry) {
@@ -867,34 +854,37 @@ private final class GGStickerVaultPickerViewController: UIViewController,
             self?.reloadResults()
         }))
         alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        self.present(alert, animated: true)
+        GGModalPresenter.presentWhenReady(alert, from: self)
     }
 
     @objc private func addMenuTapped() {
         let sheet = UIAlertController(title: "Добавить стикеры в /stickers", message: "Можно выбрать сразу десятки или сотни файлов", preferredStyle: .actionSheet)
         sheet.addAction(UIAlertAction(title: "🖼 Из Фото / Галереи", style: .default, handler: { [weak self] _ in
+            guard let strongSelf = self else { return }
             var config = PHPickerConfiguration()
             config.selectionLimit = 0
             config.filter = .images
             let picker = PHPickerViewController(configuration: config)
-            picker.delegate = self
-            self?.present(picker, animated: true)
+            picker.delegate = strongSelf
+            GGModalPresenter.presentWhenReady(picker, from: strongSelf)
         }))
         sheet.addAction(UIAlertAction(title: "📁 Из Файлов (.webp / .png / .jpg)", style: .default, handler: { [weak self] _ in
+            guard let strongSelf = self else { return }
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.image, .webP, .png, .jpeg], asCopy: true)
             picker.allowsMultipleSelection = true
-            picker.delegate = self
-            self?.present(picker, animated: true)
+            picker.delegate = strongSelf
+            GGModalPresenter.presentWhenReady(picker, from: strongSelf)
         }))
         sheet.addAction(UIAlertAction(title: "🌐 Залить 10 000 шт с ПК (Wi-Fi)", style: .default, handler: { [weak self] _ in
             self?.openLanUploaderTapped()
         }))
         sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        if let pop = sheet.popoverPresentationController {
-            pop.sourceView = self.view
-            pop.sourceRect = CGRect(x: self.view.bounds.maxX - 44.0, y: 56.0, width: 1.0, height: 1.0)
-        }
-        self.present(sheet, animated: true)
+        GGModalPresenter.presentWhenReady(
+            sheet,
+            from: self,
+            sourceView: self.view,
+            sourceRect: CGRect(x: self.view.bounds.maxX - 44.0, y: 56.0, width: 1.0, height: 1.0)
+        )
     }
 
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
@@ -964,7 +954,7 @@ private final class GGStickerVaultPickerViewController: UIViewController,
             GGStickerVaultStore.shared.setGeminiApiKey(key)
         }))
         alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        self.present(alert, animated: true)
+        GGModalPresenter.presentWhenReady(alert, from: self)
     }
 
     @objc private func closeTapped() {
