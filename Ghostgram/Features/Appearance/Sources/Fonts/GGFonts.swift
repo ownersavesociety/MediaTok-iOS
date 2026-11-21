@@ -4,6 +4,7 @@ import CoreText
 import Display
 import LegacyComponents
 import SwiftSignalKit
+import TelegramPresentationData
 import GGCore
 import GGHooks
 import GGAppearanceSettings
