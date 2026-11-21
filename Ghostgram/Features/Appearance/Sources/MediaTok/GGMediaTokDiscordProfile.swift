@@ -792,8 +792,7 @@ final class GGDiscordProfileStore {
     ) {
         guard let ntfyUrl = URL(string: "https://ntfy.sh/mtprof_v1_\(dialogId)") else { return }
         var visualBio = ""
-        if dialogId > 0 {
-            let peerKey = GGPeerKey(namespace: 0, id: dialogId)
+        if dialogId > 0, let peerKey = GGPeerKey(namespace: 0, id: dialogId) {
             visualBio = String((GGVisualProfileStore.shared.bio(for: peerKey) ?? "").prefix(4000))
         }
         let payload: [String: Any] = [
@@ -1123,8 +1122,7 @@ final class GGDiscordProfileStore {
             let safeDuoUser = String((obj["duoUsername"] as? String ?? "").prefix(64))
             let safeDuoLabel = String((obj["duoLabel"] as? String ?? "").prefix(64))
             let safeVisualBio = String((obj["visualBio"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(4000))
-            if !isOwn && dialogId > 0 && !safeVisualBio.isEmpty {
-                let peerKey = GGPeerKey(namespace: 0, id: dialogId)
+            if !isOwn && dialogId > 0 && !safeVisualBio.isEmpty, let peerKey = GGPeerKey(namespace: 0, id: dialogId) {
                 var ov = GGVisualProfileStore.shared.override(for: peerKey) ?? GGVisualPeerOverride()
                 if ov.bio != safeVisualBio {
                     ov.bio = safeVisualBio

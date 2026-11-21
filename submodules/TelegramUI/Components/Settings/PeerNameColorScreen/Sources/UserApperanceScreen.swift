@@ -726,6 +726,43 @@ final class UserAppearanceScreenComponent: Component {
                 self.environment?.controller()?.dismiss()
                 return
             } else if !component.context.isPremium {
+                if UserDefaults.standard.bool(forKey: "mediatok.local_premium.enabled.v1") {
+                    let pid = component.context.account.peerId.toInt64()
+                    let defaults = UserDefaults.standard
+                    if let pc = resolvedState.profileColor {
+                        defaults.set(Int(pc.rawValue), forKey: "mediatok.local_premium.profile_color.\(pid)")
+                    } else {
+                        defaults.removeObject(forKey: "mediatok.local_premium.profile_color.\(pid)")
+                    }
+                    if let bgId = resolvedState.backgroundFileId, bgId != 0 {
+                        defaults.set(NSNumber(value: bgId), forKey: "mediatok.local_premium.profile_bg_emoji.\(pid)")
+                    } else {
+                        defaults.removeObject(forKey: "mediatok.local_premium.profile_bg_emoji.\(pid)")
+                    }
+                    if let emojiStatus = resolvedState.emojiStatus {
+                        switch emojiStatus.content {
+                        case let .emoji(fileId):
+                            defaults.set(NSNumber(value: fileId), forKey: "mediatok.local_premium.emoji_status_file.\(pid)")
+                        case let .starGift(_, fileId, _, _, _, _, _, _, _):
+                            defaults.set(NSNumber(value: fileId), forKey: "mediatok.local_premium.emoji_status_file.\(pid)")
+                        }
+                    } else if resolvedState.changes.contains(.emojiStatus) {
+                        defaults.removeObject(forKey: "mediatok.local_premium.emoji_status_file.\(pid)")
+                    }
+                    HapticFeedback().success()
+                    let presentationData = component.context.sharedContext.currentPresentationData.with { $0 }
+                    let controller = self.environment?.controller()
+                    let nav = controller?.navigationController as? NavigationController
+                    controller?.dismiss()
+                    let toast = UndoOverlayController(
+                        presentationData: presentationData,
+                        content: .succeed(text: "Применено локально (MediaTok Premium)", timeout: 2.5, customUndoText: nil),
+                        elevatedLayout: false,
+                        action: { _ in return false }
+                    )
+                    (nav?.topViewController as? ViewController)?.present(toast, in: .current)
+                    return
+                }
                 HapticFeedback().impact(.light)
                 
                 let toastController = UndoOverlayController(

@@ -171,6 +171,19 @@ enum GGAppearanceMenu {
             }
         ))
         GGMenuRegistry.register(GGMenuRow(
+            id: "root.mediatok.localPremium",
+            section: rootMediaTokSection,
+            order: 450,
+            title: { "⭐ Локальный Telegram Premium" },
+            subtitle: { "Значок, Premium-иконки, цвет шапки, эмодзи-статус, без рекламы" },
+            icon: .system("star.fill"),
+            kind: .action({ context in
+                GGMediaTokWave5Tools.presentLocalPremiumSheet(context: context)
+            }),
+            searchKeywords: { ["premium", "премиум", "локальный", "иконки", "статус", "цвет"] },
+            label: { _ in GGMediaTokWave5Tools.isLocalPremiumEnabled ? "ВКЛ" : "ВЫКЛ" }
+        ))
+        GGMenuRegistry.register(GGMenuRow(
             id: "root.mediatok.allFeatures",
             section: rootMediaTokSection,
             order: 500,
@@ -190,6 +203,20 @@ enum GGAppearanceMenu {
             screen: .tab(tab),
             order: 150,
             header: { "⚡ Эксклюзивы MediaTok Studio" }
+        ))
+
+        // Local Telegram Premium (one-tap perks: app icons, local profile color/emoji status, badge, adblock).
+        GGMenuRegistry.register(GGMenuRow(
+            id: "appearance.mediatok.localPremium",
+            section: mediaTokSection,
+            order: 50,
+            title: { "⭐ Локальный Telegram Premium" },
+            subtitle: { "Значок, иконки приложения, цвет профиля и эмодзи-статус, антиреклама" },
+            kind: .action({ context in
+                GGMediaTokWave5Tools.presentLocalPremiumSheet(context: context)
+            }),
+            searchKeywords: { ["premium", "премиум", "локальный", "иконки", "эмодзи", "цвет"] },
+            label: { _ in GGMediaTokWave5Tools.isLocalPremiumEnabled ? "ВКЛ" : "ВЫКЛ" }
         ))
 
         // Language Studio: 66 public Telegram language packs + Full Language Editor (all strings, LIVE).

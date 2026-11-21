@@ -16,6 +16,7 @@ import WebPBinding
 import GGCore
 import GGHooks
 import GGSettingsUI
+import GGFeaturesShared
 
 // MARK: - 1. Chat Streaks (Огоньки 🔥 + Заморозка ❄️)
 
@@ -382,9 +383,73 @@ enum GGMediaTokWave5Tools {
     private static let confirmForwardKey = "mediatok.guard.confirmForward.v1"
     private static let confirmPhotoSendKey = "mediatok.guard.confirmPhotoSend.v1"
     private static let streaksEnabledKey = "mediatok.streaks.enabled.v1"
+    static let localPremiumKey = "mediatok.local_premium.enabled.v1"
 
     private static let guardLock = NSLock()
     private static var confirmedPhotoIds: Set<Int64> = []
+
+    static var isLocalPremiumEnabled: Bool {
+        get { return UserDefaults.standard.bool(forKey: GGMediaTokWave5Tools.localPremiumKey) }
+        set { UserDefaults.standard.set(newValue, forKey: GGMediaTokWave5Tools.localPremiumKey) }
+    }
+
+    static func toggleLocalPremium(context: AccountContext) -> Bool {
+        let next = !GGMediaTokWave5Tools.isLocalPremiumEnabled
+        GGMediaTokWave5Tools.isLocalPremiumEnabled = next
+        let peerKey = context.account.peerId.ggKey
+        let pid = context.account.peerId.toInt64()
+        let defaults = UserDefaults.standard
+        if next {
+            GGExtrasSettings.hidePremiumOffers.set(true)
+            GGExtrasSettings.bioLinks.set(true)
+            defaults.set(true, forKey: "mediatok.adblock.enabled.v1")
+            var ov = GGVisualProfileStore.shared.override(for: peerKey) ?? GGVisualPeerOverride()
+            if ov.badgeMode == .default {
+                ov.badgeMode = .premium
+                GGVisualProfileStore.shared.setOverride(ov, for: peerKey)
+            }
+        } else {
+            defaults.removeObject(forKey: "mediatok.local_premium.profile_color.\(pid)")
+            defaults.removeObject(forKey: "mediatok.local_premium.profile_bg_emoji.\(pid)")
+            defaults.removeObject(forKey: "mediatok.local_premium.emoji_status_file.\(pid)")
+            if var ov = GGVisualProfileStore.shared.override(for: peerKey), ov.badgeMode == .premium {
+                ov.badgeMode = .default
+                GGVisualProfileStore.shared.setOverride(ov, for: peerKey)
+            }
+        }
+        return next
+    }
+
+    static func resetLocalPremiumAppearance(context: AccountContext) {
+        let pid = context.account.peerId.toInt64()
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "mediatok.local_premium.profile_color.\(pid)")
+        defaults.removeObject(forKey: "mediatok.local_premium.profile_bg_emoji.\(pid)")
+        defaults.removeObject(forKey: "mediatok.local_premium.emoji_status_file.\(pid)")
+    }
+
+    static func presentLocalPremiumSheet(context: GGMenuContext) {
+        let enabled = GGMediaTokWave5Tools.isLocalPremiumEnabled
+        let sheet = UIAlertController(
+            title: "⭐ Локальный Telegram Premium",
+            message: enabled
+                ? "Активен: разблокированы Premium-иконки приложения, локальный выбор цвета профиля/фона и эмодзи-статуса («Оформление → Цвет вашего имени»), значок Premium, антиреклама и скрытие баннеров."
+                : "Включает локально без подписки: значок Premium, Premium-иконки приложения, выбор цвета профиля/фона и эмодзи-статуса («Оформление → Цвет вашего имени»), кликабельные ссылки в био и антирекламу.",
+            preferredStyle: .actionSheet
+        )
+        sheet.addAction(UIAlertAction(title: enabled ? "Выключить Локальный Premium" : "⭐ Включить Локальный Premium", style: .default, handler: { _ in
+            let nowOn = GGMediaTokWave5Tools.toggleLocalPremium(context: context.context)
+            context.presentToast(nowOn ? "⭐ Локальный Telegram Premium включён!" : "Локальный Telegram Premium выключен")
+        }))
+        if enabled {
+            sheet.addAction(UIAlertAction(title: "🧹 Сбросить локальный цвет шапки и эмодзи-статус", style: .destructive, handler: { _ in
+                GGMediaTokWave5Tools.resetLocalPremiumAppearance(context: context.context)
+                context.presentToast("Локальный цвет профиля и эмодзи-статус сброшены")
+            }))
+        }
+        sheet.addAction(UIAlertAction(title: "Закрыть", style: .cancel))
+        context.presentNative(sheet)
+    }
 
     static var isStreaksEnabled: Bool {
         get { return UserDefaults.standard.bool(forKey: GGMediaTokWave5Tools.streaksEnabledKey) }
