@@ -560,7 +560,7 @@ public final class PeerInfoAvatarListItemNode: ASDisplayNode {
         }
         if let localResource = representations.last?.representation.resource as? LocalFileMediaResource,
            let visPath = GGVisualProfileStore.shared.avatarPath(matchingFileId: localResource.fileId) {
-            self.imageNode.setSignal(ggVisualListAvatarSignal(path: visPath, maxPixelSize: 1600), attemptSynchronously: synchronous, dispatchOnDisplayLink: false)
+            self.imageNode.setSignal(ggVisualListAvatarSignal(path: visPath, maxPixelSize: 3072), attemptSynchronously: synchronous, dispatchOnDisplayLink: false)
         } else {
             self.imageNode.setSignal(chatAvatarGalleryPhoto(account: self.context.account, representations: representations, immediateThumbnailData: immediateThumbnailData, autoFetchFullSize: true, attemptSynchronously: synchronous, skipThumbnail: fullSizeOnly, skipBlurIfLarge: isMain), attemptSynchronously: synchronous, dispatchOnDisplayLink: false)
         }

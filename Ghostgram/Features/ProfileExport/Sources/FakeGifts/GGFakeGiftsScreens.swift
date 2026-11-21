@@ -7,6 +7,7 @@ import TelegramCore
 import AccountContext
 import LocalizedPeerData
 import ItemListUI
+import PromptUI
 import GGCore
 import GGSettingsUI
 
@@ -79,12 +80,21 @@ func ggMakeFakeGiftsListScreen(context: AccountContext) -> ViewController {
     let model = combineLatest(queue: .mainQueue(), GGFakeGiftsStore.shared.recordsSignal(accountPeerId: accountPeerId), GGLocalization.shared.languageCodeSignal)
     |> map { records, _ -> GGPEScreenModel in
         var model = GGPEScreenModel(title: GGStrings.FakeGifts.List.title)
+        model.sections.append([
+            GGPERow(id: "addByLink", kind: .action(title: "Добавить NFT-подарок по ссылке (t.me/nft/...)", destructive: false, enabled: true))
+        ])
+        model.tap["addByLink"] = {
+            ggPromptAddFakeUniqueGift(context: context, from: controllerRef)
+        }
         var rows: [GGPERow] = [GGPERow(id: "header", kind: .header(GGStrings.FakeGifts.List.header))]
         if records.isEmpty {
             rows.append(GGPERow(id: "empty", kind: .info(GGStrings.FakeGifts.List.empty)))
         }
         for record in records {
             var label = ggFakeGiftDateString(record.date)
+            if record.targetPeer != nil {
+                label = "Другому · " + label
+            }
             if record.pinnedToTop {
                 label = GGStrings.FakeGifts.List.pinned + " · " + label
             } else if !record.savedToProfile {
@@ -112,6 +122,67 @@ func ggMakeFakeGiftsListScreen(context: AccountContext) -> ViewController {
     let controller = ggPEMakeListController(context: context, model: model)
     controllerRef = controller
     return controller
+}
+
+private func ggParseUniqueGiftSlug(_ raw: String) -> String? {
+    var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty {
+        return nil
+    }
+    if let range = trimmed.range(of: "/nft/", options: .caseInsensitive) {
+        trimmed = String(trimmed[range.upperBound...])
+    } else if let range = trimmed.range(of: "nft/", options: .caseInsensitive) {
+        trimmed = String(trimmed[range.upperBound...])
+    }
+    if let queryIdx = trimmed.firstIndex(where: { $0 == "?" || $0 == "#" || $0 == "/" }) {
+        trimmed = String(trimmed[..<queryIdx])
+    }
+    trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, trimmed.count <= 128 else {
+        return nil
+    }
+    return trimmed
+}
+
+func ggPromptAddFakeUniqueGift(context: AccountContext, from controller: ViewController?, targetPeerId: PeerId? = nil) {
+    controller?.present(promptController(
+        context: context,
+        text: targetPeerId == nil ? "Добавить NFT-подарок" : "Подарить NFT (визуально)",
+        subtitle: "Вставьте ссылку вида t.me/nft/PlushPepe-1 или короткое имя подарка (slug):",
+        value: "",
+        placeholder: "t.me/nft/PlushPepe-1",
+        characterLimit: 180,
+        apply: { value in
+            guard let raw = value, let slug = ggParseUniqueGiftSlug(raw) else {
+                return
+            }
+            GGFakeGiftsSettings.isEnabled.set(true)
+            GGFakeGiftsStore.shared.ensureAccount(context.account)
+            let _ = (context.engine.payments.getUniqueStarGift(slug: slug)
+            |> deliverOnMainQueue).start(next: { uniqueGift in
+                let date = Int32(Date().timeIntervalSince1970)
+                GGFakeGiftsStore.shared.add(
+                    accountPeerId: context.account.peerId,
+                    gift: .unique(uniqueGift),
+                    fromPeer: targetPeerId == nil ? nil : context.account.peerId,
+                    nameHidden: false,
+                    date: date,
+                    text: nil,
+                    entities: nil,
+                    number: uniqueGift.number,
+                    targetPeer: targetPeerId,
+                    completion: { localId in
+                        guard let localId = localId else { return }
+                        ggPEPresentToast(context: context, from: controller, text: targetPeerId == nil ? "NFT-подарок «\(uniqueGift.title) #\(uniqueGift.number)» добавлен в профиль" : "NFT-подарок «\(uniqueGift.title) #\(uniqueGift.number)» подарен (виден только у тебя)", actionTitle: GGStrings.FakeGifts.Toast.edit, action: {
+                            controller?.push(ggMakeFakeGiftEditor(context: context, localId: localId))
+                        })
+                    }
+                )
+            }, error: { _ in
+                ggPEPresentToast(context: context, from: controller, text: "Не удалось найти NFT-подарок «\(slug)». Проверьте ссылку t.me/nft/...")
+            })
+        }
+    ), in: .window(.root))
 }
 
 /// The editor works on a draft; "Done" writes it once.

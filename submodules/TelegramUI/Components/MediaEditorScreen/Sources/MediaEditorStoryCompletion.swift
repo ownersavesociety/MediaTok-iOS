@@ -60,6 +60,95 @@ private func additionalVideoMirroring(at timestamp: Double, changes: [VideoMirro
     return isMirrored
 }
 
+// MARK: - GHOST: full-resolution copy of a chosen avatar for the visual (local) profile
+// Telegram's editor renders the avatar into a 1080 canvas and Telegram itself keeps ~720. The local
+// visual avatar is cut again from the ORIGINAL picture with the same crop (up to 3840 px) and left in
+// a temporary file that the avatar upload (PeerInfoScreenAvatarSetup) picks up and stores.
+
+private func ggHiResAvatarFileURL() -> URL {
+    return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mt_visual_avatar_4k.jpg")
+}
+
+private func ggRenderHiResAvatar(source: UIImage, values: MediaEditorValues) {
+    if abs(values.cropRotation) > 0.001 || values.drawing != nil {
+        return
+    }
+    let upright: UIImage
+    if source.imageOrientation == .up {
+        upright = source
+    } else {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        format.opaque = true
+        let pixelSize = CGSize(width: source.size.width * source.scale, height: source.size.height * source.scale)
+        upright = UIGraphicsImageRenderer(size: pixelSize, format: format).image { _ in
+            source.draw(in: CGRect(origin: .zero, size: pixelSize))
+        }
+    }
+    guard let cgImage = upright.cgImage else {
+        return
+    }
+    let srcW = CGFloat(cgImage.width)
+    let srcH = CGFloat(cgImage.height)
+    if srcW < 2.0 || srcH < 2.0 {
+        return
+    }
+    let canvas: CGFloat = 1080.0
+    let cropScale = max(values.cropScale, 0.0001)
+    let displayedWidth: CGFloat = srcH > srcW ? canvas * cropScale : canvas * cropScale * srcW / srcH
+    let k = srcW / displayedWidth
+    let side = canvas * k
+    let centerX = srcW / 2.0 - values.cropOffset.x * k
+    let centerY = srcH / 2.0 - values.cropOffset.y * k
+    let outSide = max(64.0, min(3840.0, side.rounded()))
+    let factor = outSide / side
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 1.0
+    format.opaque = true
+    let outSize = CGSize(width: outSide, height: outSide)
+    let rendered = UIGraphicsImageRenderer(size: outSize, format: format).image { context in
+        UIColor.black.setFill()
+        context.fill(CGRect(origin: .zero, size: outSize))
+        if values.cropMirroring {
+            context.cgContext.translateBy(x: outSide, y: 0.0)
+            context.cgContext.scaleBy(x: -1.0, y: 1.0)
+        }
+        UIImage(cgImage: cgImage, scale: 1.0, orientation: .up).draw(in: CGRect(
+            x: -(centerX - side / 2.0) * factor,
+            y: -(centerY - side / 2.0) * factor,
+            width: srcW * factor,
+            height: srcH * factor
+        ))
+    }
+    if let data = rendered.jpegData(compressionQuality: 0.95) {
+        try? data.write(to: ggHiResAvatarFileURL(), options: .atomic)
+    }
+}
+
+private func ggStartHiResAvatarRender(subject: MediaEditorScreenImpl.Subject, values: MediaEditorValues) {
+    switch subject {
+    case let .image(image, _, _, _, _):
+        DispatchQueue.global(qos: .userInitiated).async {
+            ggRenderHiResAvatar(source: image, values: values)
+        }
+    case let .asset(asset):
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .highQualityFormat
+        options.resizeMode = .none
+        options.isNetworkAccessAllowed = true
+        PHImageManager.default().requestImage(for: asset, targetSize: PHImageManagerMaximumSize, contentMode: .default, options: options) { image, _ in
+            guard let image else {
+                return
+            }
+            DispatchQueue.global(qos: .userInitiated).async {
+                ggRenderHiResAvatar(source: image, values: values)
+            }
+        }
+    default:
+        break
+    }
+}
+
 extension MediaEditorScreenImpl {
     func requestStoryCompletion(animated: Bool) {
         guard !self.didComplete else {
@@ -127,6 +216,10 @@ extension MediaEditorScreenImpl {
         guard let mediaEditor = self.node.mediaEditor, let subject = self.node.subject, let actualSubject = self.node.actualSubject else {
             self.failStoryCompletion()
             return
+        }
+
+        if case .avatarEditor = self.mode {
+            try? FileManager.default.removeItem(at: ggHiResAvatarFileURL()) // GHOST: no stale full-resolution avatar
         }
         
         if let collage = self.collage, preparedRandomId == nil, !collagePrepared {
@@ -594,8 +687,9 @@ extension MediaEditorScreenImpl {
             var values = mediaEditor.values
             var outputDimensions: CGSize?
             if case .avatarEditor = self.mode {
-                outputDimensions = CGSize(width: 640.0, height: 640.0)
+                outputDimensions = CGSize(width: 1080.0, height: 1080.0) // GHOST: native avatar render size (was 640)
                 values = values.withUpdatedQualityPreset(.profile)
+                ggStartHiResAvatarRender(subject: subject, values: values) // GHOST: 4K copy for the visual profile
             }
             makeEditorImageComposition(
                 context: self.node.ciContext,

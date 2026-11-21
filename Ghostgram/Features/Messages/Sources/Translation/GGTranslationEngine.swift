@@ -140,7 +140,34 @@ enum GGTranslationEngine {
         return text.contains(where: { $0.isLetter })
     }
 
-    // MARK: Requests
+    // MARK: Requests & In-Memory Cache
+
+    private static let cacheLock = NSLock()
+    private static var translationCache: [String: String] = [:]
+    private static var cacheOrder: [String] = []
+    private static let maxCacheEntries = 512
+
+    private static func cachedTranslation(for text: String, toLang: String) -> String? {
+        let key = "\(toLang)\u{1F}\(text)"
+        GGTranslationEngine.cacheLock.lock()
+        let hit = GGTranslationEngine.translationCache[key]
+        GGTranslationEngine.cacheLock.unlock()
+        return hit
+    }
+
+    private static func storeTranslation(_ translated: String, for text: String, toLang: String) {
+        let key = "\(toLang)\u{1F}\(text)"
+        GGTranslationEngine.cacheLock.lock()
+        if GGTranslationEngine.translationCache[key] == nil {
+            GGTranslationEngine.cacheOrder.append(key)
+            if GGTranslationEngine.cacheOrder.count > GGTranslationEngine.maxCacheEntries {
+                let evicted = GGTranslationEngine.cacheOrder.removeFirst()
+                GGTranslationEngine.translationCache.removeValue(forKey: evicted)
+            }
+        }
+        GGTranslationEngine.translationCache[key] = translated
+        GGTranslationEngine.cacheLock.unlock()
+    }
 
     /// Translates texts with entities to `toLang` by the given service (not Telegram).
     static func translate(_ texts: [(String, [MessageTextEntity])], toLang: String, service: GGTranslationServiceKind) -> Signal<[(String, [MessageTextEntity])], TranslationError> {
@@ -153,14 +180,47 @@ enum GGTranslationEngine {
                 }
             }
         }
+        var resolved = [String?](repeating: nil, count: fragments.count)
+        var missingIndices: [Int] = []
+        var missingFragments: [String] = []
+        for (idx, fragment) in fragments.enumerated() {
+            if !GGTranslationEngine.needsTranslation(fragment) {
+                resolved[idx] = fragment
+            } else if let cached = GGTranslationEngine.cachedTranslation(for: fragment, toLang: toLang) {
+                resolved[idx] = cached
+            } else {
+                missingIndices.append(idx)
+                missingFragments.append(fragment)
+            }
+        }
+
         let fragmentsSignal: Signal<[String], TranslationError>
-        switch service {
-        case .google:
-            fragmentsSignal = GGGoogleTranslate.translate(fragments, toLang: toLang)
-        case .system:
-            fragmentsSignal = GGSystemTranslate.translate(fragments, toLang: toLang)
-        case .telegram:
-            fragmentsSignal = .fail(.generic)
+        if missingFragments.isEmpty {
+            fragmentsSignal = .single(resolved.enumerated().map { $0.element ?? fragments[$0.offset] })
+        } else {
+            let networkSignal: Signal<[String], TranslationError>
+            switch service {
+            case .google:
+                networkSignal = GGGoogleTranslate.translate(missingFragments, toLang: toLang)
+            case .system:
+                // Apple Translation may reject profanity/slang or unloaded packs; fall back seamlessly to Google gtx.
+                networkSignal = GGSystemTranslate.translate(missingFragments, toLang: toLang)
+                |> `catch` { _ in
+                    return GGGoogleTranslate.translate(missingFragments, toLang: toLang)
+                }
+            case .telegram:
+                networkSignal = GGGoogleTranslate.translate(missingFragments, toLang: toLang)
+            }
+            fragmentsSignal = networkSignal
+            |> map { translatedMissing -> [String] in
+                var merged = resolved
+                for (offset, originalIdx) in missingIndices.enumerated() where offset < translatedMissing.count {
+                    let translatedText = translatedMissing[offset]
+                    merged[originalIdx] = translatedText
+                    GGTranslationEngine.storeTranslation(translatedText, for: fragments[originalIdx], toLang: toLang)
+                }
+                return merged.enumerated().map { $0.element ?? fragments[$0.offset] }
+            }
         }
         return fragmentsSignal
         |> map { translated -> [(String, [MessageTextEntity])] in

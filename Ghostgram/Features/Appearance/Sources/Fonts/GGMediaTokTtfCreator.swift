@@ -172,6 +172,9 @@ private final class GGLivePixelPreviewView: UIView {
     var grids: [Character: [Bool]] = [:] {
         didSet { self.setNeedsDisplay() }
     }
+    var pixelStyle: Int = 0 {
+        didSet { self.setNeedsDisplay() }
+    }
 
     override func draw(_ rect: CGRect) {
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
@@ -179,20 +182,29 @@ private final class GGLivePixelPreviewView: UIView {
         ctx.fill(rect)
         ctx.setFillColor(UIColor.label.cgColor)
 
-        let cell: CGFloat = 2.6
-        var x: CGFloat = 10.0
-        let y0: CGFloat = 6.0
-        for ch in "Привет MediaTok 123" {
+        let cell: CGFloat = 3.2
+        var x: CGFloat = 12.0
+        let y0: CGFloat = max(8.0, (rect.height - CGFloat(GGMediaTokTtfCreator.gridH) * cell) / 2.0)
+        for ch in "Привет, MediaTok! 123" {
             if ch == " " {
-                x += cell * 4.5
+                x += cell * 4.2
                 continue
             }
             guard let g = self.grids[ch] else { continue }
             var maxCol = 0
             for r in 0 ..< GGMediaTokTtfCreator.gridH {
+                let italicShift: CGFloat = (self.pixelStyle == 3) ? CGFloat(GGMediaTokTtfCreator.gridH - 1 - r) * 0.22 * cell : 0.0
                 for c in 0 ..< GGMediaTokTtfCreator.gridW {
                     if g[r * GGMediaTokTtfCreator.gridW + c] {
-                        ctx.fill(CGRect(x: x + CGFloat(c) * cell, y: y0 + CGFloat(r) * cell, width: cell, height: cell))
+                        let inset: CGFloat = (self.pixelStyle == 1) ? 0.55 : 0.0
+                        let extraW: CGFloat = (self.pixelStyle == 2) ? cell * 0.35 : 0.0
+                        let pixelRect = CGRect(
+                            x: x + CGFloat(c) * cell + italicShift + inset,
+                            y: y0 + CGFloat(r) * cell + inset,
+                            width: max(1.0, cell - inset * 2.0 + extraW),
+                            height: max(1.0, cell - inset * 2.0)
+                        )
+                        ctx.fill(pixelRect)
                         if c > maxCol { maxCol = c }
                     }
                 }
@@ -208,21 +220,24 @@ private final class GGTtfCreatorViewController: UIViewController {
     private var edited: Set<Character> = []
     private var currentChar: Character = "А"
     private var charButtons: [Character: UIButton] = [:]
+    private var isManualEditorExpanded = false
 
     private let nameField = UITextField()
     private let styleControl = UISegmentedControl(items: ["Плотный", "Пиксель", "Жирный", "Курсив"])
     private let previewView = GGLivePixelPreviewView()
+    private let toggleEditorButton = UIButton(type: .system)
+    private let editorSectionStack = UIStackView()
     private let canvasView = GGGlyphCanvasView()
     private let charScroll = UIScrollView()
 
     override func viewDidLoad() {
         super.viewDidLoad()
         self.overrideUserInterfaceStyle = .dark
-        self.title = "Создать шрифт (.ttf)"
+        self.title = "Мастер шрифта (.ttf)"
         self.view.backgroundColor = .systemBackground
 
         self.navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(self.closeTapped))
-        self.navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Собрать .ttf", style: .done, target: self, action: #selector(self.buildTapped))
+        self.navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Применить", style: .done, target: self, action: #selector(self.buildTapped))
 
         let scroll = UIScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
@@ -230,7 +245,7 @@ private final class GGTtfCreatorViewController: UIViewController {
 
         let stack = UIStackView()
         stack.axis = .vertical
-        stack.spacing = 10.0
+        stack.spacing = 12.0
         stack.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(stack)
 
@@ -242,9 +257,15 @@ private final class GGTtfCreatorViewController: UIViewController {
             stack.topAnchor.constraint(equalTo: scroll.topAnchor, constant: 12.0),
             stack.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: 16.0),
             stack.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -16.0),
-            stack.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -20.0),
+            stack.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -24.0),
             stack.widthAnchor.constraint(equalTo: scroll.widthAnchor, constant: -32.0)
         ])
+
+        let step1 = UILabel()
+        step1.font = UIFont.systemFont(ofSize: 13.0, weight: .semibold)
+        step1.textColor = .secondaryLabel
+        step1.text = "1. НАЗВАНИЕ И СТИЛЬ ШРИФТА"
+        stack.addArrangedSubview(step1)
 
         self.nameField.borderStyle = .roundedRect
         self.nameField.text = "Мой Шрифт"
@@ -252,13 +273,63 @@ private final class GGTtfCreatorViewController: UIViewController {
         stack.addArrangedSubview(self.nameField)
 
         self.styleControl.selectedSegmentIndex = 0
+        self.styleControl.addTarget(self, action: #selector(self.styleChanged), for: .valueChanged)
         stack.addArrangedSubview(self.styleControl)
 
+        let step2 = UILabel()
+        step2.font = UIFont.systemFont(ofSize: 13.0, weight: .semibold)
+        step2.textColor = .secondaryLabel
+        step2.text = "2. ПРЕВЬЮ (КАК БУДЕТ ВЫГЛЯДЕТЬ ТЕКСТ)"
+        stack.addArrangedSubview(step2)
+
         self.previewView.grids = self.grids
-        self.previewView.layer.cornerRadius = 8.0
+        self.previewView.pixelStyle = self.styleControl.selectedSegmentIndex
+        self.previewView.layer.cornerRadius = 12.0
         self.previewView.clipsToBounds = true
-        self.previewView.heightAnchor.constraint(equalToConstant: 44.0).isActive = true
+        self.previewView.heightAnchor.constraint(equalToConstant: 62.0).isActive = true
         stack.addArrangedSubview(self.previewView)
+
+        let globalToolsStack = UIStackView()
+        globalToolsStack.axis = .horizontal
+        globalToolsStack.distribution = .fillEqually
+        globalToolsStack.spacing = 8.0
+        for (title, sel) in [
+            ("Утолщить все", #selector(self.boldAllTapped)),
+            ("Сбросить стиль", #selector(self.resetAllTapped))
+        ] {
+            let b = UIButton(type: .system)
+            b.setTitle(title, for: .normal)
+            b.titleLabel?.font = UIFont.systemFont(ofSize: 14.0, weight: .medium)
+            b.backgroundColor = .secondarySystemBackground
+            b.layer.cornerRadius = 10.0
+            b.heightAnchor.constraint(equalToConstant: 38.0).isActive = true
+            b.addTarget(self, action: sel, for: .touchUpInside)
+            globalToolsStack.addArrangedSubview(b)
+        }
+        stack.addArrangedSubview(globalToolsStack)
+
+        let buildPrimaryButton = UIButton(type: .system)
+        buildPrimaryButton.setTitle("Собрать и применить шрифт сейчас", for: .normal)
+        buildPrimaryButton.titleLabel?.font = UIFont.systemFont(ofSize: 16.0, weight: .bold)
+        buildPrimaryButton.setTitleColor(.white, for: .normal)
+        buildPrimaryButton.backgroundColor = .systemBlue
+        buildPrimaryButton.layer.cornerRadius = 12.0
+        buildPrimaryButton.heightAnchor.constraint(equalToConstant: 46.0).isActive = true
+        buildPrimaryButton.addTarget(self, action: #selector(self.buildTapped), for: .touchUpInside)
+        stack.addArrangedSubview(buildPrimaryButton)
+
+        self.toggleEditorButton.setTitle("Редактировать отдельные буквы (по желанию) ▾", for: .normal)
+        self.toggleEditorButton.titleLabel?.font = UIFont.systemFont(ofSize: 14.0, weight: .medium)
+        self.toggleEditorButton.backgroundColor = .secondarySystemBackground
+        self.toggleEditorButton.layer.cornerRadius = 10.0
+        self.toggleEditorButton.heightAnchor.constraint(equalToConstant: 40.0).isActive = true
+        self.toggleEditorButton.addTarget(self, action: #selector(self.toggleManualEditor), for: .touchUpInside)
+        stack.addArrangedSubview(self.toggleEditorButton)
+
+        self.editorSectionStack.axis = .vertical
+        self.editorSectionStack.spacing = 10.0
+        self.editorSectionStack.isHidden = true
+        stack.addArrangedSubview(self.editorSectionStack)
 
         self.charScroll.showsHorizontalScrollIndicator = true
         self.charScroll.heightAnchor.constraint(equalToConstant: 40.0).isActive = true
@@ -286,7 +357,7 @@ private final class GGTtfCreatorViewController: UIViewController {
             self.charButtons[ch] = btn
             charStack.addArrangedSubview(btn)
         }
-        stack.addArrangedSubview(self.charScroll)
+        self.editorSectionStack.addArrangedSubview(self.charScroll)
 
         let canvasContainer = UIView()
         self.canvasView.translatesAutoresizingMaskIntoConstraints = false
@@ -300,7 +371,7 @@ private final class GGTtfCreatorViewController: UIViewController {
             self.canvasView.widthAnchor.constraint(equalToConstant: 250.0),
             self.canvasView.heightAnchor.constraint(equalToConstant: 300.0)
         ])
-        stack.addArrangedSubview(canvasContainer)
+        self.editorSectionStack.addArrangedSubview(canvasContainer)
 
         self.canvasView.grid = self.grids[self.currentChar] ?? [Bool](repeating: false, count: GGMediaTokTtfCreator.gridW * GGMediaTokTtfCreator.gridH)
         self.canvasView.onGridChanged = { [weak self] newGrid in
@@ -316,10 +387,9 @@ private final class GGTtfCreatorViewController: UIViewController {
         toolsStack.distribution = .fillEqually
         toolsStack.spacing = 6.0
         for (title, sel) in [
-            ("Очистить", #selector(self.clearTapped)),
+            ("Очистить букву", #selector(self.clearTapped)),
             ("Зеркало", #selector(self.mirrorTapped)),
-            ("Жирнее", #selector(self.boldTapped)),
-            ("Сброс всех", #selector(self.resetAllTapped))
+            ("Жирнее букву", #selector(self.boldTapped))
         ] {
             let b = UIButton(type: .system)
             b.setTitle(title, for: .normal)
@@ -329,16 +399,46 @@ private final class GGTtfCreatorViewController: UIViewController {
             b.addTarget(self, action: sel, for: .touchUpInside)
             toolsStack.addArrangedSubview(b)
         }
-        stack.addArrangedSubview(toolsStack)
+        self.editorSectionStack.addArrangedSubview(toolsStack)
 
         let hint = UILabel()
         hint.numberOfLines = 0
         hint.font = UIFont.systemFont(ofSize: 12.0)
         hint.textColor = .secondaryLabel
-        hint.text = "Рисуй пальцем по клеткам (красная линия — низ строки). Все 139 букв А–Я, A–Z, 0–9 предзаполнены шаблоном — перерисуй нужные и нажми «Собрать .ttf»!"
-        stack.addArrangedSubview(hint)
+        hint.text = "Все 139 букв (А–Я, A–Z, 0–9) уже готовы — просто выбери стиль сверху и нажми «Собрать и применить». В этом блоке можно вручную подправить любую отдельную букву."
+        self.editorSectionStack.addArrangedSubview(hint)
 
         self.updateCharStyles()
+    }
+
+    @objc private func styleChanged() {
+        self.previewView.pixelStyle = self.styleControl.selectedSegmentIndex
+    }
+
+    @objc private func toggleManualEditor() {
+        self.isManualEditorExpanded.toggle()
+        self.editorSectionStack.isHidden = !self.isManualEditorExpanded
+        self.toggleEditorButton.setTitle(
+            self.isManualEditorExpanded ? "Скрыть редактор отдельных букв ▴" : "Редактировать отдельные буквы (по желанию) ▾",
+            for: .normal
+        )
+    }
+
+    @objc private func boldAllTapped() {
+        for ch in GGMediaTokTtfCreator.charset {
+            let orig = self.grids[ch] ?? [Bool](repeating: false, count: GGMediaTokTtfCreator.gridW * GGMediaTokTtfCreator.gridH)
+            var g = orig
+            for r in 0 ..< GGMediaTokTtfCreator.gridH {
+                for c in 0 ..< (GGMediaTokTtfCreator.gridW - 1) {
+                    if orig[r * GGMediaTokTtfCreator.gridW + c] {
+                        g[r * GGMediaTokTtfCreator.gridW + c + 1] = true
+                    }
+                }
+            }
+            self.grids[ch] = g
+        }
+        self.canvasView.grid = self.grids[self.currentChar] ?? [Bool](repeating: false, count: GGMediaTokTtfCreator.gridW * GGMediaTokTtfCreator.gridH)
+        self.previewView.grids = self.grids
     }
 
     private func updateCharStyles() {
@@ -441,27 +541,26 @@ private final class GGTtfCreatorViewController: UIViewController {
             switch result {
             case let .added(font):
                 let alert = UIAlertController(
-                    title: "Шрифт «\(font.familyName)» собран!",
-                    message: "Файл (\(data.count / 1024) КБ) добавлен и выбран. Перезапустите MediaTok, чтобы применить его везде.",
+                    title: "Шрифт «\(font.familyName)» применён!",
+                    message: "Файл (\(data.count / 1024) КБ) добавлен и включён сразу без перезапуска.",
                     preferredStyle: .alert
                 )
-                alert.addAction(UIAlertAction(title: "Поделиться .ttf", style: .default, handler: { _ in
+                alert.addAction(UIAlertAction(title: "Поделиться .ttf", style: .default, handler: { [weak strongSelf] _ in
+                    guard let innerSelf = strongSelf else {
+                        try? FileManager.default.removeItem(at: tempURL)
+                        return
+                    }
                     let share = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
                     share.completionWithItemsHandler = { _, _, _, _ in
                         try? FileManager.default.removeItem(at: tempURL)
                     }
-                    if let pop = share.popoverPresentationController {
-                        pop.sourceView = strongSelf.view
-                        pop.sourceRect = CGRect(x: strongSelf.view.bounds.midX, y: strongSelf.view.bounds.midY, width: 0.0, height: 0.0)
-                        pop.permittedArrowDirections = []
-                    }
-                    strongSelf.present(share, animated: true)
+                    GGModalPresenter.presentWhenReady(share, from: innerSelf)
                 }))
-                alert.addAction(UIAlertAction(title: "Готово", style: .cancel, handler: { _ in
+                alert.addAction(UIAlertAction(title: "Готово", style: .cancel, handler: { [weak strongSelf] _ in
                     try? FileManager.default.removeItem(at: tempURL)
-                    strongSelf.dismiss(animated: true)
+                    strongSelf?.dismiss(animated: true)
                 }))
-                strongSelf.present(alert, animated: true)
+                GGModalPresenter.presentWhenReady(alert, from: strongSelf)
             case .notAFont:
                 try? FileManager.default.removeItem(at: tempURL)
                 strongSelf.showAlert(title: "Ошибка", message: "CoreText не смог прочитать собранный шрифт")
@@ -475,6 +574,6 @@ private final class GGTtfCreatorViewController: UIViewController {
     private func showAlert(title: String, message: String) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
-        self.present(alert, animated: true)
+        GGModalPresenter.presentWhenReady(alert, from: self)
     }
 }

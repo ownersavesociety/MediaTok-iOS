@@ -199,36 +199,48 @@ enum GGFaceEffects {
 
     // MARK: Images
 
-    /// The user's photo over the face: sized by the eye distance, centred between the eyes,
-    /// optionally colour-matched to the light around the face, with a soft oval edge.
+    /// The user's photo over the face: sized generously over the full head/face box so
+    /// head turns never shrink or slip the photo off, with a soft full-coverage oval edge.
     static func swapImage(_ c: GGFilterContext) -> CIImage {
         guard let face = c.face, let photo = c.image(c.effect.asset) else {
             return c.source
         }
+        let userScale = CGFloat(max(0.4, c.number("scale")))
         let landmarks = face.landmarks
-        let width = (landmarks != nil ? face.interEyeDistance * 2.35 : face.bounds.width) * CGFloat(c.number("scale"))
-        let height = width * photo.extent.height / max(1.0, photo.extent.width)
-        var center = CGPoint(x: face.bounds.midX, y: face.bounds.midY)
+        // Use max of bounds and inter-eye estimate so turning head in 3/4 never shrinks the photo mask.
+        let eyeWidth = landmarks != nil ? face.interEyeDistance * 3.15 : 0.0
+        let baseWidth = max(face.bounds.width * 1.46, face.bounds.height * 1.28, eyeWidth)
+        let width = baseWidth * userScale
+        let height = max(face.bounds.height * 1.48 * userScale, width * photo.extent.height / max(1.0, photo.extent.width))
+        // Lift slightly above Vision's eye-to-chin box to cover forehead and hairline cleanly.
+        var center = CGPoint(x: face.bounds.midX, y: face.bounds.midY + face.bounds.height * 0.06)
         if let landmarks, let left = landmarks.leftEyeCenter, let right = landmarks.rightEyeCenter {
-            center = CGPoint(x: (left.x + right.x) / 2.0, y: (left.y + right.y) / 2.0 - height * 0.10)
+            let eyeMidX = (left.x + right.x) / 2.0
+            let eyeMidY = (left.y + right.y) / 2.0
+            center = CGPoint(
+                x: center.x * 0.65 + eyeMidX * 0.35,
+                y: center.y * 0.65 + (eyeMidY - face.bounds.height * 0.04) * 0.35
+            )
         }
         center.x += CGFloat(c.number("offsetX")) * width
         center.y += CGFloat(c.number("offsetY")) * height
         let rotation = c.bool("followRoll") ? face.roll : 0.0
-        let factor = width / max(1.0, photo.extent.width)
+        let scaleX = width / max(1.0, photo.extent.width)
+        let scaleY = height / max(1.0, photo.extent.height)
+        let coverScale = max(scaleX, scaleY)
         var placed = photo.transformed(by: CGAffineTransform(translationX: -photo.extent.midX, y: -photo.extent.midY)
-            .concatenating(CGAffineTransform(scaleX: factor, y: factor))
+            .concatenating(CGAffineTransform(scaleX: coverScale, y: coverScale))
             .concatenating(CGAffineTransform(rotationAngle: rotation))
             .concatenating(CGAffineTransform(translationX: center.x, y: center.y)))
         let colorMatch = c.number("colorMatch")
         if colorMatch > 0.01 {
-            let region = face.bounds.insetBy(dx: -face.bounds.width * 0.1, dy: -face.bounds.height * 0.1).intersection(c.extent)
+            let region = face.bounds.insetBy(dx: -face.bounds.width * 0.15, dy: -face.bounds.height * 0.15).intersection(c.extent)
             let ambient = c.source.clampedToExtent().applyingGaussianBlur(sigma: Double(max(face.bounds.width * 0.25, 4.0))).cropped(to: region)
             let matched = ambient.applyingFilter("CIColorBlendMode", parameters: [kCIInputBackgroundImageKey: placed]).cropped(to: placed.extent)
             placed = GGMaskOps.mix(base: placed, overlay: matched, amount: colorMatch, extent: placed.extent)
         }
-        let feather = CGFloat(max(0.02, min(0.9, c.number("feather"))))
-        let mask = GGMaskOps.ellipseMask(center: center, radiusX: width * 0.46, radiusY: height * 0.52, feather: feather, rotation: rotation, extent: c.extent)
+        let feather = CGFloat(max(0.02, min(0.85, c.number("feather"))))
+        let mask = GGMaskOps.ellipseMask(center: center, radiusX: width * 0.50, radiusY: height * 0.54, feather: feather, rotation: rotation, extent: c.extent)
         let cut = GGMaskOps.masked(placed, over: CIImage(color: CIColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0)).cropped(to: c.extent), mask: mask, extent: c.extent)
         let mode = GGMaskBlendMode(rawValue: c.text("blendMode")) ?? .normal
         return GGMaskOps.blend(layer: cut, over: c.source, mode: mode, opacity: c.number("opacity"), extent: c.extent)

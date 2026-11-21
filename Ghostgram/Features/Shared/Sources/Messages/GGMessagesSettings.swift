@@ -45,9 +45,9 @@ public enum GGMessagesSettings {
     public static let hideSendAsButton = GGSetting<Bool>("sending.hideSendAsButton", default: false)
 
     // MARK: Translation («Перевод»)
-    public static let translationService = GGSetting<String>("translation.service", default: GGTranslationServiceKind.telegram.rawValue)
+    public static let translationService = GGSetting<String>("translation.service", default: GGTranslationServiceKind.google.rawValue)
     /// The user saw and accepted the notice that texts go to a third-party service.
-    public static let translationThirdPartyAccepted = GGSetting<Bool>("translation.thirdPartyAccepted", default: false, flags: [.noExport])
+    public static let translationThirdPartyAccepted = GGSetting<Bool>("translation.thirdPartyAccepted", default: true, flags: [.noExport])
     public static let quickTranslateButton = GGSetting<Bool>("translation.quickButton", default: false)
     public static let translateBeforeSending = GGSetting<Bool>("translation.beforeSending", default: false)
     public static let translateBeforeSendingLanguage = GGSetting<String>("translation.beforeSendingLanguage", default: "en")

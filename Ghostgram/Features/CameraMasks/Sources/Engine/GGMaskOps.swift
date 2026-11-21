@@ -233,8 +233,8 @@ enum GGMaskOps {
         guard let region else {
             return source.clampedToExtent().applyingGaussianBlur(sigma: radius).cropped(to: extent)
         }
-        let inner = hypot(region.width, region.height) / 2.0
-        let feather = max(region.width, region.height) * 0.18
+        let inner = hypot(region.width, region.height) / 2.0 * 1.08
+        let feather = max(region.width, region.height) * 0.16
         let reach = inner + feather + CGFloat(radius) * 3.0 + 1.0
         let roi = CGRect(x: region.midX - reach, y: region.midY - reach, width: reach * 2.0, height: reach * 2.0).intersection(extent)
         let blurred = source.clampedToExtent().cropped(to: roi.insetBy(dx: -CGFloat(radius) * 3.0, dy: -CGFloat(radius) * 3.0)).applyingGaussianBlur(sigma: radius).cropped(to: roi)
@@ -248,8 +248,8 @@ enum GGMaskOps {
         guard let region else {
             return pixelated
         }
-        let inner = hypot(region.width, region.height) / 2.0 * 0.95
-        let feather = max(region.width, region.height) * 0.18
+        let inner = hypot(region.width, region.height) / 2.0 * 1.08
+        let feather = max(region.width, region.height) * 0.16
         let mask = GGMaskOps.radialMask(center: CGPoint(x: region.midX, y: region.midY), innerRadius: inner, outerRadius: inner + feather, extent: extent)
         return GGMaskOps.masked(pixelated, over: source, mask: mask, extent: extent)
     }
@@ -271,7 +271,13 @@ enum GGMaskOps {
         case .fullFrame:
             return extent
         case .face:
-            return f
+            // Expand Vision's tight eye-to-chin box to cover forehead, cheeks, ears and jawline fully.
+            return CGRect(
+                x: f.minX - f.width * 0.24,
+                y: f.minY - f.height * 0.16,
+                width: f.width * 1.48,
+                height: f.height * 1.48
+            )
         case .eyes:
             if let landmarks, let left = ggBounds(landmarks.leftEye), let right = ggBounds(landmarks.rightEye) {
                 let union = left.union(right)
@@ -367,12 +373,12 @@ enum GGMaskOps {
         return image
     }
 
-    /// The emoji as a square of the face's longer side ×1.2 over the face rect.
+    /// The emoji as a square of the expanded face's longer side ×1.35 over the face rect.
     static func emojiHead(_ source: CIImage, emoji: String, rect: CGRect, extent: CGRect) -> CIImage {
         guard let glyph = GGMaskOps.emojiImage(emoji) else {
             return source
         }
-        let side = max(rect.width, rect.height) * 1.2
+        let side = max(rect.width, rect.height) * 1.35
         let factor = side / glyph.extent.width
         let transform = CGAffineTransform(scaleX: factor, y: factor).concatenating(CGAffineTransform(translationX: rect.midX - side / 2.0, y: rect.midY - side / 2.0))
         return glyph.transformed(by: transform).composited(over: source).cropped(to: extent)

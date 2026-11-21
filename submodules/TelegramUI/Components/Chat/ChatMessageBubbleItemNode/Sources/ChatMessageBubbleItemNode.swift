@@ -78,6 +78,7 @@ import ChatMessageGiftOfferBubbleContentNode
 import ChatMessageDisableCopyProtectionBubbleContentNode
 import ChatMessageGiveawayBubbleContentNode
 import ChatMessageJoinedChannelBubbleContentNode
+import GGCore // GHOST: visual profile overrides & badges
 import GGHooks // GHOST: message decorations
 import ChatMessageFactCheckBubbleContentNode
 import ChatMessageTransferBubbleContentNode
@@ -2499,7 +2500,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                 
         if initialDisplayHeader && displayAuthorInfo {
             if let peer = firstMessage.peers[firstMessage.id.peerId] as? TelegramChannel, case .broadcast = peer.info, item.content.firstMessage.adAttribute == nil, !overrideEffectiveAuthor {
-                authorNameString = EnginePeer(peer).displayTitle(strings: item.presentationData.strings, displayOrder: item.presentationData.nameDisplayOrder)
+                authorNameString = GGVisualProfileStore.shared.name(for: peer.id.ggKey) ?? EnginePeer(peer).displayTitle(strings: item.presentationData.strings, displayOrder: item.presentationData.nameDisplayOrder)
                 ggAuthorBadge = ggBubbleAuthorBadge(item: item, authorId: peer.id) // GHOST: see ggAuthorBadge
                 
                 let peer = (peer as Peer)
@@ -2513,8 +2514,21 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                     nameColors = nil
                 }
                 authorNameColor = nameColors?.main
+
+                let channelBadges = GGVisualProfileStore.shared.resolveBadges(
+                    for: peer.id.ggKey,
+                    isVerified: peer.isVerified,
+                    isPremium: peer.isPremium,
+                    isScam: peer.isScam,
+                    isFake: peer.isFake
+                )
+                if channelBadges.scam {
+                    currentCredibilityIcon = (.text(color: incoming ? item.presentationData.theme.theme.chat.message.incoming.scamColor : item.presentationData.theme.theme.chat.message.outgoing.scamColor, string: item.presentationData.strings.Message_ScamAccount.uppercased()), nil)
+                } else if channelBadges.fake {
+                    currentCredibilityIcon = (.text(color: incoming ? item.presentationData.theme.theme.chat.message.incoming.scamColor : item.presentationData.theme.theme.chat.message.outgoing.scamColor, string: item.presentationData.strings.Message_FakeAccount.uppercased()), nil)
+                }
             } else if let effectiveAuthor = effectiveAuthor {
-                authorNameString = EnginePeer(effectiveAuthor).displayTitle(strings: item.presentationData.strings, displayOrder: item.presentationData.nameDisplayOrder)
+                authorNameString = GGVisualProfileStore.shared.name(for: effectiveAuthor.id.ggKey) ?? EnginePeer(effectiveAuthor).displayTitle(strings: item.presentationData.strings, displayOrder: item.presentationData.nameDisplayOrder)
                 ggAuthorBadge = ggBubbleAuthorBadge(item: item, authorId: effectiveAuthor.id) // GHOST: see ggAuthorBadge
                 
                 let nameColors: PeerNameColors.Colors
@@ -2534,19 +2548,27 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                 }
                 authorNameColor = color
 
-                if case let .peer(peerId) = item.chatLocation, let authorPeerId = item.message.author?.id, authorPeerId == peerId {
+                let resolvedBadges = GGVisualProfileStore.shared.resolveBadges(
+                    for: effectiveAuthor.id.ggKey,
+                    isVerified: effectiveAuthor.isVerified,
+                    isPremium: effectiveAuthor.isPremium,
+                    isScam: effectiveAuthor.isScam,
+                    isFake: effectiveAuthor.isFake
+                )
+                let hasVisualBadgeOverride = GGVisualProfileStore.shared.badgeMode(for: effectiveAuthor.id.ggKey) != .default
+                if !hasVisualBadgeOverride, case let .peer(peerId) = item.chatLocation, let authorPeerId = item.message.author?.id, authorPeerId == peerId {
                     if effectiveAuthor is TelegramChannel, let emojiStatus = effectiveAuthor.emojiStatus {
                         currentCredibilityIcon = (.animation(content: .customEmoji(fileId: emojiStatus.fileId), size: CGSize(width: 20.0, height: 20.0), placeholderColor: incoming ? item.presentationData.theme.theme.chat.message.incoming.mediaPlaceholderColor : item.presentationData.theme.theme.chat.message.outgoing.mediaPlaceholderColor, themeColor: color.withMultipliedAlpha(0.4), loopMode: .count(2)), nil)
                     }
-                } else if effectiveAuthor.isScam {
+                } else if resolvedBadges.scam {
                     currentCredibilityIcon = (.text(color: incoming ? item.presentationData.theme.theme.chat.message.incoming.scamColor : item.presentationData.theme.theme.chat.message.outgoing.scamColor, string: item.presentationData.strings.Message_ScamAccount.uppercased()), nil)
-                } else if effectiveAuthor.isFake {
+                } else if resolvedBadges.fake {
                     currentCredibilityIcon = (.text(color: incoming ? item.presentationData.theme.theme.chat.message.incoming.scamColor : item.presentationData.theme.theme.chat.message.outgoing.scamColor, string: item.presentationData.strings.Message_FakeAccount.uppercased()), nil)
-                } else if let emojiStatus = effectiveAuthor.emojiStatus {
+                } else if resolvedBadges.allowEmojiStatus, let emojiStatus = effectiveAuthor.emojiStatus {
                     currentCredibilityIcon = (.animation(content: .customEmoji(fileId: emojiStatus.fileId), size: CGSize(width: 20.0, height: 20.0), placeholderColor: incoming ? item.presentationData.theme.theme.chat.message.incoming.mediaPlaceholderColor : item.presentationData.theme.theme.chat.message.outgoing.mediaPlaceholderColor, themeColor: color.withMultipliedAlpha(0.4), loopMode: .count(2)), emojiStatus.color.flatMap { UIColor(rgb: UInt32(bitPattern: $0)) })
-                } else if effectiveAuthor.isVerified {
+                } else if resolvedBadges.verified {
                     currentCredibilityIcon = (.verified(fillColor: item.presentationData.theme.theme.list.itemCheckColors.fillColor, foregroundColor: item.presentationData.theme.theme.list.itemCheckColors.foregroundColor, sizeType: .compact), nil)
-                } else if effectiveAuthor.isPremium {
+                } else if resolvedBadges.premium {
                     currentCredibilityIcon = (.premium(color: color.withMultipliedAlpha(0.4)), nil)
                 }
             }

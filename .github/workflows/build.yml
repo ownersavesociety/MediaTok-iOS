@@ -1,4 +1,4 @@
-name: Build MediaTok iOS (Ghost Edition)
+name: Build MediaTok iOS
 
 on:
   push:
@@ -151,7 +151,7 @@ jobs:
           now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
           dl_url = f"https://github.com/ownersavesociety/MediaTok-iOS/releases/download/{tag}/MediaTok.ipa"
           source = {
-              "name": "MediaTok iOS Ghost Edition",
+              "name": "MediaTok iOS",
               "subtitle": "Official Auto-Update Source for AltStore / SideStore / ESign / Feather",
               "identifier": "org.mediatok.ios.source",
               "sourceURL": "https://github.com/ownersavesociety/MediaTok-iOS/releases/latest/download/apps.json",
@@ -159,9 +159,9 @@ jobs:
                   {
                       "name": "MediaTok",
                       "bundleIdentifier": "ph.telegra.Telegraph",
-                      "developerName": "MediaTok (Ghost Edition)",
+                      "developerName": "MediaTok",
                       "subtitle": "Telegram iOS + /stickers 10k AI + Discord Profile + E2E + Audio Guard",
-                      "localizedDescription": "MediaTok iOS Ghost Edition: TikTok Feed, Achievements, Scratch Cards, Call Guard, Bottom Bar Studio, /stickers 10k AI Vault, Infinite Profile Playlist & Voice Bio, Last.fm/ListenBrainz + Discord Connections, Chat Streaks, EXIF Stripper, 4K 60fps Video, Liquid Glass.",
+                      "localizedDescription": "MediaTok iOS: TikTok Feed, Achievements, Scratch Cards, Call Guard, Bottom Bar Studio, /stickers 10k AI Vault, Infinite Profile Playlist & Voice Bio, Last.fm/ListenBrainz + Discord Connections, Chat Streaks, EXIF Stripper, 4K 60fps Video, Liquid Glass.",
                       "version": app_ver,
                       "versionDate": now_iso,
                       "versionDescription": f"Build b{build_num}: Wave 6 — TikTok Feed, Achievements, Scratch Cards, Call Guard, Bottom Bar Studio",
@@ -189,8 +189,8 @@ jobs:
             "$GITHUB_WORKSPACE/dist/apps.json" \
             --repo "${{ github.repository }}" \
             --latest \
-            --title "MediaTok iOS ${APP_VERSION} Ghost Edition (${BUILD_NUMBER})" \
-            --notes "MediaTok iOS built on Ghostgram (Telegram iOS ${APP_VERSION}): TikTok Feed (#187), Achievements (#168), Scratch Cards (#163), Call Guard (#58), Bottom Bar Studio (#110), Minesweeper, /stickers 10k AI Vault + Wi-Fi Uploader, Discord Infinite Profile Playlist & Voice Bio, Live Music & Connections, Streaks, EXIF Stripper, 4K60, Liquid Glass & E2E. Install via AltStore, SideStore, ESign, Feather, Sideloadly, LiveContainer, or TrollStore."
+            --title "MediaTok iOS ${APP_VERSION} (${BUILD_NUMBER})" \
+            --notes "MediaTok iOS (Telegram iOS ${APP_VERSION}): TikTok Feed (#187), Achievements (#168), Scratch Cards (#163), Call Guard (#58), Bottom Bar Studio (#110), Minesweeper, /stickers 10k AI Vault + Wi-Fi Uploader, Discord Infinite Profile Playlist & Voice Bio, Live Music & Connections, Streaks, EXIF Stripper, 4K60, Liquid Glass & E2E. Install via AltStore, SideStore, ESign, Feather, Sideloadly, LiveContainer, or TrollStore."
 
       - name: Prune Bazel Disk Cache to < 7.5 GB
         if: always()

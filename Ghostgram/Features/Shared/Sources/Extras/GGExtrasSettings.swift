@@ -86,7 +86,7 @@ public enum GGExtrasSettings {
     /// «Подключить устройство» (QR login) even where the server hides it.
     public static let qrLoginAlways = GGSetting<Bool>("extras.qrLoginAlways", default: true)
     /// The alert about a session ended by the server names the likely reasons.
-    public static let logoutReason = GGSetting<Bool>("extras.logoutReason", default: true)
+    public static let logoutReason = GGSetting<Bool>("extras.logoutReason", default: false)
     /// «Добавить аккаунт» in Settings with a single account too (upstream shows it from two).
     public static let addAccountRow = GGSetting<Bool>("extras.addAccountRow", default: true)
 

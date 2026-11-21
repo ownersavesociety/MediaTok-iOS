@@ -1703,14 +1703,9 @@ public final class GGAchievementsViewController: UITableViewController {
     }
 
     @objc private func shareAchievements() {
-        let text = "🏆 Мои достижения в MediaTok iOS Ghost Edition:\nРанг: \(self.tier) (\(self.unlocked.count)/12)\n" + self.unlocked.map { "\($0.icon) \($0.title)" }.joined(separator: "\n")
+        let text = "🏆 Мои достижения в MediaTok iOS:\nРанг: \(self.tier) (\(self.unlocked.count)/12)\n" + self.unlocked.map { "\($0.icon) \($0.title)" }.joined(separator: "\n")
         let vc = UIActivityViewController(activityItems: [text], applicationActivities: nil)
-        if let pop = vc.popoverPresentationController {
-            pop.sourceView = self.view
-            pop.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 0, height: 0)
-            pop.permittedArrowDirections = []
-        }
-        self.present(vc, animated: true)
+        GGModalPresenter.presentWhenReady(vc, from: self)
     }
 
     public override func numberOfSections(in tableView: UITableView) -> Int {

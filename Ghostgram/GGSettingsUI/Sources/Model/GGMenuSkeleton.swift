@@ -214,7 +214,7 @@ func ggRegisterMenuSkeleton() {
     // «Настройки Ghostgram» and «О приложении» carry W1-3's own rows (see GGSettingsDataScreens.swift).
     GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: .ghostgramSettingsLanguage, screen: .tab(.moreGhostgramSettings), order: 300, header: { GGStrings.Menu.Settings.languageHeader }, footer: { _ in GGStrings.Menu.Settings.languageFooter }))
     GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: .ghostgramSettingsData, screen: .tab(.moreGhostgramSettings), order: 400, header: { GGStrings.Menu.Settings.dataHeader }, footer: { _ in GGStrings.Menu.Settings.dataFooter }))
-    GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: .aboutInfo, screen: .tab(.moreAbout), order: 300))
-    GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: .aboutLinks, screen: .tab(.moreAbout), order: 400, header: { GGStrings.Menu.Root.links }))
-    GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: .aboutLicense, screen: .tab(.moreAbout), order: 500, header: { GGStrings.Menu.About.licenseHeader }, footer: { _ in GGStrings.Menu.About.licenseFooter }))
+    GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: .aboutInfo, screen: .tab(.moreAbout), order: 300, isVisible: { _ in false }))
+    GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: .aboutLinks, screen: .tab(.moreAbout), order: 400, header: { GGStrings.Menu.Root.links }, isVisible: { _ in false }))
+    GGMenuRegistry.register(section: GGMenuSectionDescriptor(id: .aboutLicense, screen: .tab(.moreAbout), order: 500, header: { GGStrings.Menu.About.licenseHeader }, footer: { _ in GGStrings.Menu.About.licenseFooter }, isVisible: { _ in false }))
 }

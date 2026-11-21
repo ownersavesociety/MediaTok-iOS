@@ -75,7 +75,15 @@ enum GGTranslateBeforeSending {
         }))
         context.sharedContext.mainWindow?.present(progress, on: .root)
 
-        disposable.set((context.engine.messages.translate(text: text, toLang: toLang, entities: entities)
+        let translateSignal: Signal<(String, [MessageTextEntity])?, TranslationError> = context.engine.messages.translate(text: text, toLang: toLang, entities: entities)
+        |> `catch` { _ -> Signal<(String, [MessageTextEntity])?, TranslationError> in
+            return GGTranslationEngine.translate([(text, entities)], toLang: toLang, service: .google)
+            |> map { items in
+                return items.first
+            }
+        }
+
+        disposable.set((translateSignal
         |> deliverOnMainQueue).start(next: { [weak progress] result in
             GGTranslateBeforeSending.isTranslating = false
             progress?.dismiss()

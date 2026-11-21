@@ -114,7 +114,7 @@ enum GGExtrasMenu {
         let sessions = GGExtrasMenu.sessionsSection
         GGMenuRegistry.register(toggle("extras.sessionDetails", section: sessions, order: 100, setting: GGExtrasSettings.sessionDetails, title: { GGStrings.Extras.Menu.sessionDetails }, subtitle: { GGStrings.Extras.Menu.sessionDetailsInfo }))
         GGMenuRegistry.register(toggle("extras.qrLoginAlways", section: sessions, order: 200, setting: GGExtrasSettings.qrLoginAlways, title: { GGStrings.Extras.Menu.qrLoginAlways }, subtitle: { GGStrings.Extras.Menu.qrLoginAlwaysInfo }))
-        GGMenuRegistry.register(toggle("extras.logoutReason", section: sessions, order: 300, setting: GGExtrasSettings.logoutReason, title: { GGStrings.Extras.Menu.logoutReason }, subtitle: { GGStrings.Extras.Menu.logoutReasonInfo }))
+        GGMenuRegistry.register(GGMenuRow(id: "extras.logoutReason", section: sessions, order: 300, title: { GGStrings.Extras.Menu.logoutReason }, subtitle: { GGStrings.Extras.Menu.logoutReasonInfo }, kind: .toggle(.global(GGExtrasSettings.logoutReason)), isVisible: { _ in false })) // MediaTok: hidden
         // «Аккаунты» (W3-4's tab), after its own rows.
         GGMenuRegistry.register(toggle("extras.addAccountRow", section: GGMenuSectionID.main(of: GGMenuTabID.securityAccounts), order: 9000, setting: GGExtrasSettings.addAccountRow, title: { GGStrings.Extras.Menu.addAccountRow }, subtitle: { GGStrings.Extras.Menu.addAccountRowInfo }))
         // The row is built with the Settings tab, which Telegram rebuilds only when its own data

@@ -1597,8 +1597,9 @@ func peerInfoScreenData(
                 var availablePanes = availablePanes
                 if isMyProfile {
                     availablePanes?.insert(.stories, at: 0)
-                    if availablePanes != nil, profileGiftsContext != nil, let cachedData = peerView.cachedData as? CachedUserData {
-                        if (cachedData.starGiftsCount ?? 0) > 0 || ggProfileHasLocalGifts(account: context.account, peerId: peerId) { // GHOST: local-only gifts show the tab too (GGGiftHooks.hasLocalGifts)
+                    if availablePanes != nil, profileGiftsContext != nil {
+                        let serverGiftsCount = (peerView.cachedData as? CachedUserData)?.starGiftsCount ?? 0
+                        if serverGiftsCount > 0 || ggProfileHasLocalGifts(account: context.account, peerId: peerId) { // GHOST: local-only gifts show the tab too (GGGiftHooks.hasLocalGifts)
                             availablePanes?.insert(.gifts, at: 1)
                         }
                     }
@@ -1610,8 +1611,10 @@ func peerInfoScreenData(
                         availablePanes?.insert(.stories, at: 0)
                     }
                     
-                    if availablePanes != nil, profileGiftsContext != nil, let cachedData = peerView.cachedData as? CachedUserData, peerView.peerId != context.account.peerId {
-                        if let starGiftsCount = cachedData.starGiftsCount, starGiftsCount > 0 {
+                    if availablePanes != nil, profileGiftsContext != nil {
+                        let serverGiftsCount = (peerView.cachedData as? CachedUserData)?.starGiftsCount ?? 0
+                        let hasLocalOwnGifts = ggProfileHasLocalGifts(account: context.account, peerId: peerView.peerId) // GHOST: fake gifts shown on another person's profile too
+                        if (peerView.peerId != context.account.peerId && serverGiftsCount > 0) || hasLocalOwnGifts {
                             availablePanes?.insert(.gifts, at: hasStories ? 1 : 0)
                         }
                     }

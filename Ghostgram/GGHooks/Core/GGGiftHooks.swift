@@ -61,7 +61,7 @@ public func ggProfileHasLocalGifts(account: Account, peerId: PeerId) -> Bool {
 /// gifts change (`GGGiftHooks.invalidate()`), so the «Gifts» tab appears with the first one and goes
 /// with the last one while the profile is open. Any other profile: `signal` as is.
 public func ggRepublishOnLocalGiftsChange<T>(_ signal: Signal<T, NoError>, account: Account, peerId: PeerId) -> Signal<T, NoError> {
-    if GGGiftHooks.hasLocalGifts.isEmpty || peerId != account.peerId {
+    if GGGiftHooks.hasLocalGifts.isEmpty {
         return signal
     }
     let changes: Signal<Void, NoError> = .single(Void()) |> then(ggProfileGiftsInvalidations.signal())

@@ -34,10 +34,13 @@ public final class GGTikTokFeedViewController: UIViewController {
     private let spinner = UIActivityIndicatorView(style: .large)
     private var isMuted: Bool = false
     private var searchDisposable: Disposable?
+    private var fetchDisposable: Disposable?
     private var mediaDisposable: Disposable?
+    private var activeTempVideoURL: URL?
 
     public struct VideoFeedItem {
         public let messageId: MessageId
+        public let timestamp: Int32
         public let peer: EnginePeer?
         public let peerTitle: String
         public let caption: String
@@ -56,9 +59,13 @@ public final class GGTikTokFeedViewController: UIViewController {
 
     deinit {
         self.searchDisposable?.dispose()
+        self.fetchDisposable?.dispose()
         self.mediaDisposable?.dispose()
         if let obs = self.endObserver {
             NotificationCenter.default.removeObserver(obs)
+        }
+        if let tempURL = self.activeTempVideoURL {
+            try? FileManager.default.removeItem(at: tempURL)
         }
         self.player?.pause()
         self.player = nil
@@ -212,65 +219,127 @@ public final class GGTikTokFeedViewController: UIViewController {
 
     private func loadChannelVideos() {
         self.spinner.startAnimating()
-        let signal = self.context.engine.messages.searchMessages(
-            location: .general(scope: .everywhere, groupId: nil, tags: .video, minDate: nil, maxDate: nil, folderId: nil, communityId: nil),
-            query: "",
-            state: nil,
-            limit: 40
-        )
-
-        self.searchDisposable = (signal
-        |> take(1)
-        |> deliverOnMainQueue).start(next: { [weak self] result, _ in
-            guard let self = self else { return }
-            self.spinner.stopAnimating()
-            var items: [VideoFeedItem] = []
-            for message in result.messages {
-                let rawPeer = message.peers[message.id.peerId]
-                let peerTitle = rawPeer?.debugDisplayTitle ?? "Канал"
-                var fileRes: MediaResource?
-                var fileRef: MediaResourceReference?
-                for media in message.media {
-                    if let file = media as? TelegramMediaFile, (file.isVideo || file.isInstantVideo) {
-                        fileRes = file.resource
-                        fileRef = FileMediaReference.message(message: MessageReference(message), media: file).resourceReference(file.resource)
-                        break
+        let localSignal = self.context.account.postbox.transaction { transaction -> [VideoFeedItem] in
+            var found: [VideoFeedItem] = []
+            var seenMsgIds = Set<MessageId>()
+            var seenPeers = Set<PeerId>()
+            let groups: [PeerGroupId] = [.root, PeerGroupId(rawValue: 1)]
+            for groupId in groups {
+                let peers = transaction.getTopChatListEntries(groupId: groupId, count: 60)
+                for rendered in peers {
+                    if seenPeers.contains(rendered.peerId) { continue }
+                    seenPeers.insert(rendered.peerId)
+                    let peerObj = rendered.peer
+                    let peerTitle = peerObj?.debugDisplayTitle ?? "Канал"
+                    let enginePeer = peerObj.map(EnginePeer.init)
+                    transaction.scanTopMessages(peerId: rendered.peerId, namespace: Namespaces.Message.Cloud, limit: 25) { message in
+                        if seenMsgIds.contains(message.id) { return true }
+                        for media in message.media {
+                            if let file = media as? TelegramMediaFile,
+                               (file.isVideo || file.isInstantVideo),
+                               !file.isAnimated,
+                               !file.isSticker,
+                               !file.isAnimatedSticker {
+                                seenMsgIds.insert(message.id)
+                                let ref = FileMediaReference.message(message: MessageReference(message), media: file).resourceReference(file.resource)
+                                found.append(VideoFeedItem(
+                                    messageId: message.id,
+                                    timestamp: message.timestamp,
+                                    peer: enginePeer,
+                                    peerTitle: peerTitle,
+                                    caption: message.text.isEmpty ? "Видео из «\(peerTitle)» (свайп вверх → следующее)" : message.text,
+                                    resource: file.resource,
+                                    reference: ref
+                                ))
+                                break
+                            }
+                        }
+                        return found.count < 240
                     }
                 }
-                guard fileRes != nil else { continue }
-                items.append(VideoFeedItem(
-                    messageId: message.id,
-                    peer: rawPeer.map(EnginePeer.init),
-                    peerTitle: peerTitle,
-                    caption: message.text.isEmpty ? "Видео из канала (свайп вверх → следующее)" : message.text,
-                    resource: fileRes,
-                    reference: fileRef
-                ))
             }
+            found.sort { $0.timestamp > $1.timestamp }
+            return Array(found.prefix(80))
+        }
 
-            if items.isEmpty {
-                items.append(VideoFeedItem(
-                    messageId: MessageId(peerId: self.context.account.peerId, namespace: 0, id: 1),
-                    peer: nil,
-                    peerTitle: "MediaTok Feed",
-                    caption: "Видео пока не найдены. Подпишитесь на каналы с видео, и лента автоматически заполнится!",
-                    resource: nil,
-                    reference: nil
-                ))
+        self.searchDisposable?.dispose()
+        self.searchDisposable = (localSignal
+        |> deliverOnMainQueue).start(next: { [weak self] localItems in
+            guard let self = self else { return }
+            if !localItems.isEmpty {
+                self.spinner.stopAnimating()
+                self.videoItems = localItems
+                self.currentIndex = 0
+                self.displayCurrentVideo()
+                return
             }
-            self.videoItems = items
-            self.displayCurrentVideo()
+            let fallback = self.context.engine.messages.searchMessages(
+                location: .general(scope: .everywhere, groupId: nil, tags: .video, minDate: nil, maxDate: nil, folderId: nil, communityId: nil),
+                query: "",
+                state: nil,
+                limit: 40
+            )
+            self.searchDisposable = (fallback
+            |> take(1)
+            |> deliverOnMainQueue).start(next: { [weak self] result, _ in
+                guard let self = self else { return }
+                self.spinner.stopAnimating()
+                var items: [VideoFeedItem] = []
+                for message in result.messages {
+                    let rawPeer = message.peers[message.id.peerId]
+                    let peerTitle = rawPeer?.debugDisplayTitle ?? "Канал"
+                    var fileRes: MediaResource?
+                    var fileRef: MediaResourceReference?
+                    for media in message.media {
+                        if let file = media as? TelegramMediaFile,
+                           (file.isVideo || file.isInstantVideo),
+                           !file.isAnimated,
+                           !file.isSticker {
+                            fileRes = file.resource
+                            fileRef = FileMediaReference.message(message: MessageReference(message), media: file).resourceReference(file.resource)
+                            break
+                        }
+                    }
+                    guard fileRes != nil else { continue }
+                    items.append(VideoFeedItem(
+                        messageId: message.id,
+                        timestamp: message.timestamp,
+                        peer: rawPeer.map(EnginePeer.init),
+                        peerTitle: peerTitle,
+                        caption: message.text.isEmpty ? "Видео из «\(peerTitle)» (свайп вверх → следующее)" : message.text,
+                        resource: fileRes,
+                        reference: fileRef
+                    ))
+                }
+                if items.isEmpty {
+                    items.append(VideoFeedItem(
+                        messageId: MessageId(peerId: self.context.account.peerId, namespace: 0, id: 1),
+                        timestamp: 0,
+                        peer: nil,
+                        peerTitle: "MediaTok Feed",
+                        caption: "Видео пока не загружены в чатах. Откройте любой канал с видео — и лента сразу подхватит ролики!",
+                        resource: nil,
+                        reference: nil
+                    ))
+                }
+                self.videoItems = items
+                self.currentIndex = 0
+                self.displayCurrentVideo()
+            })
         })
     }
 
     private func displayCurrentVideo() {
         guard !self.videoItems.isEmpty, self.currentIndex >= 0, self.currentIndex < self.videoItems.count else { return }
         let item = self.videoItems[self.currentIndex]
-        self.channelLabel.text = "📢 \(item.peerTitle)"
+        self.channelLabel.text = item.peerTitle
         self.captionLabel.text = item.caption
         self.counterLabel.text = "\(self.currentIndex + 1) / \(self.videoItems.count)"
 
+        self.fetchDisposable?.dispose()
+        self.fetchDisposable = nil
         self.mediaDisposable?.dispose()
+        self.mediaDisposable = nil
         if let obs = self.endObserver {
             NotificationCenter.default.removeObserver(obs)
             self.endObserver = nil
@@ -282,6 +351,7 @@ public final class GGTikTokFeedViewController: UIViewController {
 
         guard let resource = item.resource else { return }
         if let completedPath = self.context.account.postbox.mediaBox.completedResourcePath(resource) {
+            self.spinner.stopAnimating()
             self.playLocalVideo(at: URL(fileURLWithPath: completedPath))
             return
         }
@@ -293,7 +363,7 @@ public final class GGTikTokFeedViewController: UIViewController {
             |> filter { $0.complete }
             |> take(1)
 
-        let _ = fetchSignal.start()
+        self.fetchDisposable = fetchSignal.start()
         self.mediaDisposable = (dataSignal |> deliverOnMainQueue).start(next: { [weak self] data in
             guard let self = self else { return }
             self.spinner.stopAnimating()
@@ -301,8 +371,34 @@ public final class GGTikTokFeedViewController: UIViewController {
         })
     }
 
-    private func playLocalVideo(at url: URL) {
-        let p = AVPlayer(url: url)
+    private func playLocalVideo(at sourceURL: URL) {
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+        try? AVAudioSession.sharedInstance().setActive(true)
+
+        if let oldTemp = self.activeTempVideoURL {
+            try? FileManager.default.removeItem(at: oldTemp)
+            self.activeTempVideoURL = nil
+        }
+
+        // AVPlayer on iOS refuses extensionless Telegram MediaBox cache paths; provide a .mp4 link.
+        let playableURL: URL
+        let ext = sourceURL.pathExtension.lowercased()
+        if ext == "mp4" || ext == "mov" || ext == "m4v" {
+            playableURL = sourceURL
+        } else {
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("mt_tt_\(UUID().uuidString).mp4")
+            try? FileManager.default.removeItem(at: tempURL)
+            if (try? FileManager.default.linkItem(at: sourceURL, to: tempURL)) != nil
+                || (try? FileManager.default.createSymbolicLink(at: tempURL, withDestinationURL: sourceURL)) != nil
+                || (try? FileManager.default.copyItem(at: sourceURL, to: tempURL)) != nil {
+                self.activeTempVideoURL = tempURL
+                playableURL = tempURL
+            } else {
+                playableURL = sourceURL
+            }
+        }
+
+        let p = AVPlayer(url: playableURL)
         p.isMuted = self.isMuted
         let layer = AVPlayerLayer(player: p)
         layer.frame = self.videoContainer.bounds

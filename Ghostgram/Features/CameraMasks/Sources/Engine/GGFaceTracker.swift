@@ -170,7 +170,7 @@ final class GGFaceTracker {
 
     private let sequenceHandler = VNSequenceRequestHandler()
 
-    static let holdDuration: Double = 1.2
+    static let holdDuration: Double = 4.5
 
     /// Called on the capture queue for every processed frame. Starts a detection when one is due.
     func submit(_ pixelBuffer: CVPixelBuffer, orientation: CGImagePropertyOrientation, needs: GGVisionNeeds, time: Double, slowdown: Double) {
@@ -179,7 +179,7 @@ final class GGFaceTracker {
         }
         self.lock.lock()
         let isBusy = self.isDetecting
-        let faceInterval = (needs.contains(.landmarks) ? 0.075 : 0.05) * slowdown
+        let faceInterval = (needs.contains(.landmarks) ? 0.045 : 0.038) * slowdown
         let segmentationInterval = 0.1 * slowdown
         let wantsFace = needs.contains(.face) && time - self.lastFaceRequestTime >= faceInterval
         let wantsSegmentation = needs.contains(.segmentation) && time - self.lastSegmentationRequestTime >= segmentationInterval
@@ -232,6 +232,16 @@ final class GGFaceTracker {
             // The largest face, not the first one Vision lists.
             if let observation = observations.max(by: { $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height }) {
                 faceResult = (observation.boundingBox, CGFloat(observation.roll?.doubleValue ?? 0.0), GGFaceTracker.landmarks(observation))
+            }
+        }
+        // Fallback: Landmarks detection drops early on 3/4 head turns or dim light.
+        // Fall back to faster FaceRectangles so photo/privacy masks never slip off mid-turn.
+        if face && landmarks && faceResult == nil {
+            let rectRequest = VNDetectFaceRectanglesRequest()
+            try? self.sequenceHandler.perform([rectRequest], on: pixelBuffer, orientation: orientation)
+            if let observations = rectRequest.results as? [VNFaceObservation],
+               let observation = observations.max(by: { $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height }) {
+                faceResult = (observation.boundingBox, CGFloat(observation.roll?.doubleValue ?? 0.0), nil)
             }
         }
         let mask = segmentationRequest?.results?.first?.pixelBuffer
@@ -375,13 +385,13 @@ final class GGFaceTracker {
 
     /// Hold below a small motion, snap above a large one, ease in between (quadratic ramp).
     private static func smoothingFactor(motion: CGFloat) -> CGFloat {
-        if motion < 0.006 {
+        if motion < 0.003 {
             return 0.0
         }
-        if motion > 0.45 {
+        if motion > 0.35 {
             return 1.0
         }
-        let t = min(1.0, max(0.0, (motion - 0.006) / (0.32 - 0.006)))
-        return 0.15 + 0.75 * t * t
+        let t = min(1.0, max(0.0, (motion - 0.003) / (0.28 - 0.003)))
+        return 0.22 + 0.78 * t * t
     }
 }

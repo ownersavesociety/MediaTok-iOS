@@ -305,7 +305,7 @@ public final class ChatTitleView: UIView, NavigationBarTitleView {
                                         segments = [.text(0, NSAttributedString(string: EnginePeer(peer).displayTitle(strings: self.strings, displayOrder: self.nameDisplayOrder), font: titleFont, textColor: titleTheme.rootController.navigationBar.primaryTextColor))]
                                     }
                                 }
-                                if peer.id != self.context.account.peerId {
+                                if peer.id != self.context.account.peerId || GGVisualProfileStore.shared.badgeMode(for: peer.id.ggKey) != .default {
                                     let premiumConfiguration = PremiumConfiguration.with(appConfiguration: self.context.currentAppConfiguration.with { $0 })
                                     let resolvedBadges = GGVisualProfileStore.shared.resolveBadges(
                                         for: peer.id.ggKey,

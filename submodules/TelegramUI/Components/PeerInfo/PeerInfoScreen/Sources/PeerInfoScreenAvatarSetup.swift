@@ -19,6 +19,7 @@ import PresentationDataUtils
 import LegacyComponents
 import LegacyMediaPickerUI
 import GGCore
+import ImageIO
 
 private struct GGPreparedProfilePhoto {
     let resource: LocalFileMediaResource
@@ -38,6 +39,24 @@ private func ggPrepareProfilePhotoUpload(context: AccountContext, image: UIImage
     return GGPreparedProfilePhoto(resource: resource, data: data, width: width, height: height)
 }
 
+/// The full-resolution copy of the avatar the media editor has just cut (MediaEditorStoryCompletion):
+/// used for the local visual profile only; Telegram gets the normal upload.
+private func ggTakeHiResAvatar() -> (data: Data, width: Int, height: Int)? {
+    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mt_visual_avatar_4k.jpg")
+    guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+          let modified = attributes[.modificationDate] as? Date,
+          Date().timeIntervalSince(modified) < 180.0,
+          let data = try? Data(contentsOf: url),
+          let source = CGImageSourceCreateWithData(data as CFData, nil),
+          let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+          let width = properties[kCGImagePropertyPixelWidth] as? Int,
+          let height = properties[kCGImagePropertyPixelHeight] as? Int else {
+        return nil
+    }
+    try? FileManager.default.removeItem(at: url)
+    return (data, width, height)
+}
+
 private func ggMirrorNativeAvatarUpload(peerId: EnginePeer.Id, mode: PeerInfoAvatarEditingMode, prepared: GGPreparedProfilePhoto, videoData: Data?) {
     guard mode == .generic || mode == .accept else {
         return
@@ -46,6 +65,9 @@ private func ggMirrorNativeAvatarUpload(peerId: EnginePeer.Id, mode: PeerInfoAva
     if let videoData, !videoData.isEmpty {
         GGVisualProfileStore.shared.saveAvatarVideoData(videoData, coverData: prepared.data, width: prepared.width, height: prepared.height, for: peerKey)
         GGVisualProfileStore.shared.publishGlobal4kAvatar(for: peerKey, photoData: prepared.data, videoData: videoData)
+    } else if let hiRes = ggTakeHiResAvatar() {
+        GGVisualProfileStore.shared.saveAvatarData(hiRes.data, width: hiRes.width, height: hiRes.height, for: peerKey)
+        GGVisualProfileStore.shared.publishGlobal4kAvatar(for: peerKey, photoData: hiRes.data, videoData: nil)
     } else {
         GGVisualProfileStore.shared.saveAvatarData(prepared.data, width: prepared.width, height: prepared.height, for: peerKey)
         GGVisualProfileStore.shared.publishGlobal4kAvatar(for: peerKey, photoData: prepared.data, videoData: nil)

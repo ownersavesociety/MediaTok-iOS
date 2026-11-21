@@ -26,10 +26,10 @@ enum GGFakeGiftsHooks {
         })
 
         GGGiftHooks.profileGifts.register({ state, query in
-            guard GGFakeGiftsSettings.isEnabled.value, query.collectionId == nil, query.peerId == query.account.peerId else {
+            guard GGFakeGiftsSettings.isEnabled.value, query.collectionId == nil else {
                 return
             }
-            let fakes = GGFakeGiftsStore.shared.resolvedGifts(accountPeerId: query.peerId)
+            let fakes = GGFakeGiftsStore.shared.resolvedGifts(accountPeerId: query.account.peerId, forPeer: query.peerId)
             if fakes.isEmpty {
                 return
             }
@@ -63,6 +63,26 @@ enum GGFakeGiftsHooks {
         })
 
         GGFakeGiftsPendingPoints.register()
+
+        // «Подарить визуально» from another person's profile: a collectible by its t.me/nft link.
+        GGPeerInfoHooks.menuItems.register({ info in
+            if info.isSettings {
+                return []
+            }
+            let peer = info.peer
+            let context = info.context
+            guard peer.id != context.account.peerId, peer.id.namespace == Namespaces.Peer.CloudUser else {
+                return []
+            }
+            let targetPeerId = peer.id
+            weak let controller = info.controller
+            return [.action(ContextMenuActionItem(text: "Подарить NFT-подарок (визуально)", icon: { theme in
+                return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Gift"), color: theme.contextMenu.primaryColor)
+            }, action: { contextController, _ in
+                contextController?.dismiss(completion: nil)
+                ggPromptAddFakeUniqueGift(context: context, from: controller, targetPeerId: targetPeerId)
+            }))]
+        })
     }
 }
 
@@ -163,6 +183,7 @@ private func ggFakeGiftMenuItems(_ menuContext: GGGiftViewMenuContext) -> [Conte
             return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Gift"), color: theme.contextMenu.primaryColor)
         }, action: { contextController, _ in
             contextController?.dismiss(completion: nil)
+            GGFakeGiftsStore.shared.ensureAccount(context.account)
             let date = Int32(Date().timeIntervalSince1970)
             GGFakeGiftsStore.shared.add(accountPeerId: accountPeerId, gift: gift, fromPeer: fromPeerId == accountPeerId ? nil : fromPeerId, nameHidden: nameHidden, date: date, text: text, entities: entities, number: number, completion: { localId in
                 guard let localId = localId else {
@@ -172,8 +193,40 @@ private func ggFakeGiftMenuItems(_ menuContext: GGGiftViewMenuContext) -> [Conte
                     ggOpenFakeGiftEditor(context: context, localId: localId, from: controller)
                 })
             })
+        })),
+        .action(ContextMenuActionItem(text: "Подарить визуально другому…", icon: { theme in
+            return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Gift"), color: theme.contextMenu.primaryColor)
+        }, action: { contextController, _ in
+            contextController?.dismiss(completion: nil)
+            ggGiveFakeGiftToPeer(context: context, gift: gift, text: text, entities: entities, number: number, from: controller)
         }))
     ]
+}
+
+/// Picks a person and shows a copy of the gift on their profile (only on this device), then opens the
+/// editor so the sender and the caption can be changed.
+private func ggGiveFakeGiftToPeer(context: AccountContext, gift: StarGift, text: String?, entities: [MessageTextEntity]?, number: Int32?, from controller: ViewController?) {
+    let navigationController = (controller?.navigationController as? NavigationController) ?? ggProfileExportTopController(context: context)?.0
+    controller?.dismiss(animated: true)
+    let picker = context.sharedContext.makePeerSelectionController(PeerSelectionControllerParams(context: context, filter: [.excludeSecretChats, .doNotSearchMessages], hasContactSelector: true, title: "Кому подарить (визуально)"))
+    picker.peerSelected = { [weak picker, weak navigationController] peer, _ in
+        picker?.dismiss()
+        GGFakeGiftsSettings.isEnabled.set(true)
+        GGFakeGiftsStore.shared.ensureAccount(context.account)
+        let accountPeerId = context.account.peerId
+        let date = Int32(Date().timeIntervalSince1970)
+        GGFakeGiftsStore.shared.add(accountPeerId: accountPeerId, gift: gift, fromPeer: accountPeerId, nameHidden: false, date: date, text: text, entities: entities, number: number, targetPeer: peer.id, completion: { localId in
+            guard let localId = localId else {
+                return
+            }
+            Queue.mainQueue().after(0.7) {
+                navigationController?.pushViewController(ggMakeFakeGiftEditor(context: context, localId: localId))
+            }
+        })
+    }
+    Queue.mainQueue().after(0.35) {
+        navigationController?.pushViewController(picker)
+    }
 }
 
 /// Closes the gift screen (a sheet over the stack) and opens the editor on the account's stack.

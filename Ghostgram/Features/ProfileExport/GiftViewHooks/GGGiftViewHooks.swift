@@ -58,24 +58,43 @@ public enum GGGiftViewHooks {
 }
 
 private func ggGiftViewMenuContext(context: AccountContext, subject: GiftViewScreen.Subject, controller: ViewController?) -> GGGiftViewMenuContext? {
-    guard let arguments = subject.arguments else {
+    if let arguments = subject.arguments {
+        return GGGiftViewMenuContext(
+            context: context,
+            gift: arguments.gift,
+            reference: arguments.reference,
+            ownerPeerId: arguments.peerId,
+            fromPeerId: arguments.fromPeerId,
+            date: arguments.date,
+            text: arguments.text,
+            entities: arguments.entities,
+            nameHidden: arguments.nameHidden,
+            savedToProfile: arguments.savedToProfile,
+            pinnedToTop: arguments.pinnedToTop ?? false,
+            number: arguments.giftNumber,
+            controller: controller
+        )
+    }
+    switch subject {
+    case let .soldOutGift(generic), let .upgradePreview(generic, _, _):
+        return GGGiftViewMenuContext(
+            context: context,
+            gift: .generic(generic),
+            reference: nil,
+            ownerPeerId: nil,
+            fromPeerId: nil,
+            date: Int32(Date().timeIntervalSince1970),
+            text: nil,
+            entities: nil,
+            nameHidden: false,
+            savedToProfile: true,
+            pinnedToTop: false,
+            number: nil,
+            controller: controller
+        )
+    default:
         return nil
     }
-    return GGGiftViewMenuContext(
-        context: context,
-        gift: arguments.gift,
-        reference: arguments.reference,
-        ownerPeerId: arguments.peerId,
-        fromPeerId: arguments.fromPeerId,
-        date: arguments.date,
-        text: arguments.text,
-        entities: arguments.entities,
-        nameHidden: arguments.nameHidden,
-        savedToProfile: arguments.savedToProfile,
-        pinnedToTop: arguments.pinnedToTop ?? false,
-        number: arguments.giftNumber,
-        controller: controller
-    )
 }
 
 /// Items of the features for this gift (empty without handlers).

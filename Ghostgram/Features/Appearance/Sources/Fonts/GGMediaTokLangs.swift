@@ -313,23 +313,62 @@ enum GGMediaTokLangs {
 private final class GGLangStudioViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate {
     private let baseDict: [String: String]
     private let openPack: (String) -> Void
-    private let allSortedKeys: [String]
-    private var currentTab = 0      // 0 = Catalog(66) + Presets, 1 = Full Editor (ALL ~5500+ keys), 2 = Export/Import
-    private var editorFilter = 0    // 0 = Popular, 1 = ALL keys, 2 = Modified only
+    private var currentTab = 0      // 0 = Catalog(66) + Presets, 1 = Own Language (curated groups), 2 = Export/Import
+    private var editorFilter = 0    // 0 = Curated groups, 1 = Modified only
     private var query = ""
 
-    private var filteredPacks: [GGMediaTokLangs.PublicPack] = GGMediaTokLangs.publicPacks
-    private var filteredKeys: [(key: String, label: String)] = GGMediaTokLangs.popularKeys
+    private static let curatedSections: [(title: String, keys: [(key: String, label: String)])] = [
+        ("Статусы и активность", [
+            ("Presence.online", "В сети"),
+            ("LastSeen.Lately", "Был(а) недавно"),
+            ("LastSeen.JustNow", "Был(а) только что"),
+            ("LastSeen.TodayAt", "Был(а) сегодня в %@"),
+            ("LastSeen.YesterdayAt", "Был(а) вчера в %@"),
+            ("LastSeen.Offline", "Офлайн"),
+            ("DialogList.Typing", "Печатает (в списке)"),
+            ("Conversation.typing", "Печатает (в чате)"),
+            ("Activity.RecordingAudio", "Записывает голосовое"),
+            ("Activity.UploadingPhoto", "Отправляет фото"),
+            ("Activity.UploadingVideo", "Отправляет видео")
+        ]),
+        ("Главный экран и вкладки", [
+            ("DialogList.Title", "Чаты"),
+            ("Contacts.Title", "Контакты"),
+            ("Calls.TabTitle", "Звонки"),
+            ("Settings.Title", "Настройки"),
+            ("DialogList.SavedMessages", "Избранное"),
+            ("ChatList.Archive", "Архив"),
+            ("Common.Search", "Поиск"),
+            ("DialogList.Draft", "Черновик")
+        ]),
+        ("Внутри чата", [
+            ("Conversation.InputTextPlaceholder", "Поле «Сообщение»"),
+            ("Conversation.MessageEditedLabel", "Пометка «изменено»"),
+            ("Conversation.ContextMenuReply", "Ответить"),
+            ("Conversation.ContextMenuForward", "Переслать"),
+            ("Conversation.ContextMenuCopy", "Копировать"),
+            ("Conversation.ContextMenuDelete", "Удалить")
+        ]),
+        ("Профиль и статусы аккаунта", [
+            ("User.DeletedAccount", "Удалённый аккаунт"),
+            ("Bot.GenericBotStatus", "Бот"),
+            ("Conversation.BlockUser", "Заблокировать"),
+            ("Conversation.UnblockUser", "Разблокировать")
+        ])
+    ]
 
-    private let tabControl = UISegmentedControl(items: ["Каталог (66)", "Фулл (ВСЕ)", ".mtlang"])
-    private let filterControl = UISegmentedControl(items: ["Хиты", "ВСЕ строки", "Правки"])
+    private var filteredPacks: [GGMediaTokLangs.PublicPack] = GGMediaTokLangs.publicPacks
+    private var visibleEditorSections: [(title: String, keys: [(key: String, label: String)])] = []
+
+    private let tabControl = UISegmentedControl(items: ["Каталог (66)", "Свой язык", ".mtlang"])
+    private let filterControl = UISegmentedControl(items: ["Основные", "Изменённые"])
+    private let previewBanner = UILabel()
     private let searchBar = UISearchBar()
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
 
     init(baseDict: [String: String], openPack: @escaping (String) -> Void) {
         self.baseDict = baseDict
         self.openPack = openPack
-        self.allSortedKeys = baseDict.keys.sorted()
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -349,18 +388,26 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
         self.tabControl.addTarget(self, action: #selector(self.tabChanged), for: .valueChanged)
 
         self.filterControl.selectedSegmentIndex = 0
-        self.filterControl.setTitle("ВСЕ (\(self.allSortedKeys.count))", forSegmentAt: 1)
         self.filterControl.addTarget(self, action: #selector(self.filterChanged), for: .valueChanged)
+
+        self.previewBanner.font = UIFont.systemFont(ofSize: 13.0, weight: .medium)
+        self.previewBanner.textColor = .secondaryLabel
+        self.previewBanner.backgroundColor = .secondarySystemGroupedBackground
+        self.previewBanner.layer.cornerRadius = 10.0
+        self.previewBanner.clipsToBounds = true
+        self.previewBanner.textAlignment = .center
+        self.previewBanner.numberOfLines = 2
+        self.previewBanner.heightAnchor.constraint(equalToConstant: 44.0).isActive = true
 
         self.searchBar.delegate = self
         self.searchBar.searchBarStyle = .minimal
-        self.searchBar.placeholder = "Поиск языка или ЛЮБОЙ фразы..."
+        self.searchBar.placeholder = "Поиск пака или фразы..."
 
         self.tableView.dataSource = self
         self.tableView.delegate = self
         self.tableView.keyboardDismissMode = .onDrag
 
-        let topStack = UIStackView(arrangedSubviews: [self.tabControl, self.filterControl, self.searchBar])
+        let topStack = UIStackView(arrangedSubviews: [self.tabControl, self.filterControl, self.previewBanner, self.searchBar])
         topStack.axis = .vertical
         topStack.spacing = 6.0
         topStack.translatesAutoresizingMaskIntoConstraints = false
@@ -408,8 +455,13 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
     private func refreshData() {
         let overrides = GGMediaTokLangs.overrides
         self.filterControl.isHidden = (self.currentTab != 1)
+        self.previewBanner.isHidden = (self.currentTab != 1)
         self.searchBar.isHidden = (self.currentTab == 2)
-        self.filterControl.setTitle("Правки (\(overrides.count))", forSegmentAt: 2)
+        self.filterControl.setTitle("Изменённые (\(overrides.count))", forSegmentAt: 1)
+
+        let onlineText = overrides["Presence.online"] ?? self.baseDict["Presence.online"] ?? "в сети"
+        let inputText = overrides["Conversation.InputTextPlaceholder"] ?? self.baseDict["Conversation.InputTextPlaceholder"] ?? "Сообщение"
+        self.previewBanner.text = "Превью: Анна · \(onlineText)   |   «\(inputText)»"
 
         if self.currentTab == 0 {
             if self.query.isEmpty {
@@ -423,30 +475,32 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
                 }
             }
         } else if self.currentTab == 1 {
-            if self.editorFilter == 0 && self.query.isEmpty {
-                self.filteredKeys = GGMediaTokLangs.popularKeys
-            } else if self.editorFilter == 2 {
-                self.filteredKeys = overrides.keys.sorted().compactMap { k in
-                    let v = overrides[k] ?? ""
+            if self.editorFilter == 1 {
+                let knownLabels = Dictionary(uniqueKeysWithValues: GGMediaTokLangs.popularKeys.map { ($0.key, $0.label) })
+                let items: [(key: String, label: String)] = overrides.keys.sorted().compactMap { k in
+                    let label = knownLabels[k] ?? k
+                    let val = overrides[k] ?? ""
                     let orig = self.baseDict[k] ?? ""
-                    if !self.query.isEmpty && !k.lowercased().contains(self.query) && !v.lowercased().contains(self.query) && !orig.lowercased().contains(self.query) {
+                    if !self.query.isEmpty && !label.lowercased().contains(self.query) && !val.lowercased().contains(self.query) && !orig.lowercased().contains(self.query) {
                         return nil
                     }
-                    return (k, k)
+                    return (k, label)
                 }
+                self.visibleEditorSections = items.isEmpty ? [] : [("Изменённые фразы (\(items.count))", items)]
             } else {
-                var out: [(String, String)] = []
-                out.reserveCapacity(200)
-                for k in self.allSortedKeys {
-                    let orig = self.baseDict[k] ?? ""
-                    let ov = overrides[k] ?? ""
-                    if !self.query.isEmpty && !k.lowercased().contains(self.query) && !orig.lowercased().contains(self.query) && !ov.lowercased().contains(self.query) {
-                        continue
+                var built: [(title: String, keys: [(key: String, label: String)])] = []
+                for sec in GGLangStudioViewController.curatedSections {
+                    let matching = sec.keys.filter { item in
+                        if self.query.isEmpty { return true }
+                        let orig = (self.baseDict[item.key] ?? "").lowercased()
+                        let ov = (overrides[item.key] ?? "").lowercased()
+                        return item.label.lowercased().contains(self.query) || orig.contains(self.query) || ov.contains(self.query)
                     }
-                    out.append((k, k))
-                    if out.count >= 250 { break }
+                    if !matching.isEmpty {
+                        built.append((sec.title, matching))
+                    }
                 }
-                self.filteredKeys = out
+                self.visibleEditorSections = built
             }
         }
         self.tableView.reloadData()
@@ -458,20 +512,23 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
         if self.currentTab == 0 {
             return self.query.isEmpty ? 2 : 1
         }
+        if self.currentTab == 1 {
+            return max(1, self.visibleEditorSections.count)
+        }
         return 1
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         if self.currentTab == 0 {
             if self.query.isEmpty && section == 0 {
-                return "Мгновенные пресеты MediaTok (офлайн, LIVE)"
+                return "Быстрые стили интерфейса (офлайн, сразу)"
             }
             return "Публичные языки Telegram (\(self.filteredPacks.count))"
         } else if self.currentTab == 1 {
-            if self.editorFilter == 0 && self.query.isEmpty {
-                return "Популярные фразы (или выбери «ВСЕ» / ищи сверху)"
+            if self.visibleEditorSections.isEmpty {
+                return "Нет изменённых фраз — выберите любую в «Основные»"
             }
-            return "Показано: \(self.filteredKeys.count) из \(self.allSortedKeys.count) строк"
+            return self.visibleEditorSections[section].title
         }
         return "Экспорт и импорт своего языка (.mtlang JSON)"
     }
@@ -483,7 +540,10 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
             }
             return self.filteredPacks.count
         } else if self.currentTab == 1 {
-            return self.filteredKeys.count
+            if self.visibleEditorSections.isEmpty {
+                return 0
+            }
+            return self.visibleEditorSections[section].keys.count
         }
         return 3
     }
@@ -509,10 +569,10 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
                 cell.accessoryType = .disclosureIndicator
             }
         } else if self.currentTab == 1 {
-            let item = self.filteredKeys[indexPath.row]
-            let orig = self.baseDict[item.key] ?? item.key
+            let item = self.visibleEditorSections[indexPath.section].keys[indexPath.row]
+            let orig = self.baseDict[item.key] ?? item.label
             let custom = GGMediaTokLangs.overrides[item.key]
-            cell.textLabel?.text = custom != nil ? "\(item.label)  ✎" : item.label
+            cell.textLabel?.text = item.label
             cell.detailTextLabel?.text = custom != nil ? "\(orig)  →  \(custom ?? "")" : orig
             cell.accessoryType = custom != nil ? .checkmark : .disclosureIndicator
         } else {
@@ -522,7 +582,7 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
                 cell.detailTextLabel?.text = "JSON-словарь .mtlang — можно скинуть другу"
             } else if indexPath.row == 1 {
                 cell.textLabel?.text = "Импортировать язык из буфера обмена"
-                cell.detailTextLabel?.text = "Вставит JSON и сразу применит LIVE"
+                cell.detailTextLabel?.text = "Вставит JSON и сразу применит без перезапуска"
             } else {
                 cell.textLabel?.text = "Сбросить все правки языка (\(count))"
                 cell.detailTextLabel?.text = "Вернуть стандартные строки"
@@ -542,7 +602,7 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
                 for (k, v) in preset.map { merged[k] = v }
                 GGMediaTokLangs.saveOverrides(merged)
                 self.refreshData()
-                self.showAlert(title: "Применено LIVE!", message: "Пресет «\(preset.name)» (\(preset.map.count) фраз) активен сразу!")
+                self.showAlert(title: "Применено!", message: "Стиль «\(preset.name)» (\(preset.map.count) фраз) активен сразу!")
             } else {
                 let pack = self.filteredPacks[indexPath.row]
                 let openPack = self.openPack
@@ -551,11 +611,12 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
                 }
             }
         } else if self.currentTab == 1 {
-            let item = self.filteredKeys[indexPath.row]
-            let orig = self.baseDict[item.key] ?? item.key
+            guard indexPath.section < self.visibleEditorSections.count else { return }
+            let item = self.visibleEditorSections[indexPath.section].keys[indexPath.row]
+            let orig = self.baseDict[item.key] ?? item.label
             let current = GGMediaTokLangs.overrides[item.key] ?? orig
-            let hint = orig.contains("%") ? "\n⚠ Сохраняй подстановки вроде %@!" : ""
-            let alert = UIAlertController(title: "Изменить фразу", message: "Ключ: \(item.key)\nОригинал: «\(orig)»\(hint)", preferredStyle: .alert)
+            let hint = orig.contains("%") ? "\nСохраняй подстановки вроде %@ (туда подставляется время)." : ""
+            let alert = UIAlertController(title: item.label, message: "Сейчас: «\(orig)»\(hint)", preferredStyle: .alert)
             alert.addTextField { tf in
                 tf.text = current
                 tf.placeholder = orig
@@ -586,7 +647,7 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
                 strongSelf.refreshData()
             }))
             alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-            self.present(alert, animated: true)
+            GGModalPresenter.presentWhenReady(alert, from: self)
         } else {
             if indexPath.row == 0 {
                 if let data = try? JSONSerialization.data(withJSONObject: GGMediaTokLangs.overrides, options: [.prettyPrinted, .sortedKeys]),
@@ -618,7 +679,7 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
                 GGMediaTokLangs.saveOverrides(merged)
                 self.refreshData()
                 let extra = skipped > 0 ? "\nПропущено небезопасных строк: \(skipped)." : ""
-                self.showAlert(title: "Импортировано", message: "Применено \(count) фраз LIVE!\(extra)")
+                self.showAlert(title: "Импортировано", message: "Применено \(count) фраз сразу!\(extra)")
             } else {
                 GGMediaTokLangs.saveOverrides([:])
                 self.refreshData()
@@ -630,6 +691,6 @@ private final class GGLangStudioViewController: UIViewController, UITableViewDat
     private func showAlert(title: String, message: String) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
-        self.present(alert, animated: true)
+        GGModalPresenter.presentWhenReady(alert, from: self)
     }
 }

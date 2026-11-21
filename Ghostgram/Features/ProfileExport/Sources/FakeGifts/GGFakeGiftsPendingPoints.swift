@@ -13,10 +13,10 @@ import GGCore
 enum GGFakeGiftsPendingPoints {
     static func register() {
         GGGiftHooks.hasLocalGifts.register({ account, peerId in
-            guard GGFakeGiftsSettings.isEnabled.value, peerId == account.peerId else {
+            guard GGFakeGiftsSettings.isEnabled.value else {
                 return false
             }
-            return !GGFakeGiftsStore.shared.resolvedGifts(accountPeerId: peerId).isEmpty
+            return !GGFakeGiftsStore.shared.resolvedGifts(accountPeerId: account.peerId, forPeer: peerId).isEmpty
         })
     }
 

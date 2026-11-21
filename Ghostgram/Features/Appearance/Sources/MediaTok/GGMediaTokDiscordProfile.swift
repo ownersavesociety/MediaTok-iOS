@@ -1673,7 +1673,8 @@ private final class GGDiscordEffectView: UIView {
     }
 
     deinit {
-        self.clearEffect()
+        self.boltTimer?.invalidate()
+        self.boltTimer = nil
     }
 
     func configure(effectId: String) {
@@ -1689,13 +1690,13 @@ private final class GGDiscordEffectView: UIView {
         }
         switch resolved {
         case "sakura":
-            self.setupParticles(color: UIColor(rgb: 0xFFA6C9), birthRate: 7.0, velocity: 38.0, yAccel: 18.0, size: 9.0, fromBottom: false, spin: 1.8)
+            self.setupParticles(kind: "sakura", color: UIColor(rgb: 0xFFB7D5), birthRate: 6.5, velocity: 34.0, yAccel: 14.0, size: 11.0, fromBottom: false, spin: 1.6)
         case "fire":
-            self.setupParticles(color: UIColor(rgb: 0xFF7B00), birthRate: 14.0, velocity: -58.0, yAccel: -22.0, size: 6.5, fromBottom: true, spin: 0.4)
+            self.setupParticles(kind: "fire", color: UIColor(rgb: 0xFF7B00), birthRate: 13.0, velocity: -56.0, yAccel: -20.0, size: 8.5, fromBottom: true, spin: 0.35)
         case "snow":
-            self.setupParticles(color: UIColor.white, birthRate: 12.0, velocity: 32.0, yAccel: 12.0, size: 6.0, fromBottom: false, spin: 0.5)
+            self.setupParticles(kind: "snow", color: UIColor.white, birthRate: 10.0, velocity: 30.0, yAccel: 10.0, size: 9.0, fromBottom: false, spin: 0.65)
         case "stars":
-            self.setupParticles(color: UIColor(rgb: 0xFFE57F), birthRate: 10.0, velocity: 14.0, yAccel: 0.0, size: 7.0, fromBottom: false, spin: 2.2)
+            self.setupParticles(kind: "stars", color: UIColor(rgb: 0xFFE57F), birthRate: 9.0, velocity: 14.0, yAccel: 0.0, size: 10.0, fromBottom: false, spin: 1.4)
         case "neon":
             self.setupNeonWave()
         case "lightning":
@@ -1721,22 +1722,102 @@ private final class GGDiscordEffectView: UIView {
         self.matrixLabels.removeAll()
     }
 
-    private func makeParticleImage(color: UIColor, size: CGFloat) -> CGImage? {
-        let r = UIGraphicsImageRenderer(size: CGSize(width: size * 2.0, height: size * 2.0))
-        let img = r.image { ctx in
-            let rect = CGRect(x: 0.0, y: 0.0, width: size * 2.0, height: size * 2.0)
-            ctx.cgContext.setFillColor(color.withAlphaComponent(0.92).cgColor)
-            ctx.cgContext.setShadow(offset: .zero, blur: size * 0.5, color: color.cgColor)
-            ctx.cgContext.fillEllipse(in: rect.insetBy(dx: size * 0.35, dy: size * 0.35))
+    private func makeParticleImage(kind: String, color: UIColor, size: CGFloat) -> CGImage? {
+        let side = max(24.0, size * 2.6)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2.0
+        format.opaque = false
+        let img = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { ctx in
+            let cg = ctx.cgContext
+            let cx = side / 2.0
+            let cy = side / 2.0
+            let r = side * 0.34
+            cg.setShadow(offset: .zero, blur: size * 0.32, color: color.withAlphaComponent(0.75).cgColor)
+            switch kind {
+            case "sakura":
+                // Authentic notched sakura petal silhouette instead of a plain circle.
+                let path = UIBezierPath()
+                path.move(to: CGPoint(x: cx, y: cy + r))
+                path.addCurve(
+                    to: CGPoint(x: cx - r * 0.22, y: cy - r * 0.88),
+                    controlPoint1: CGPoint(x: cx - r * 0.95, y: cy + r * 0.25),
+                    controlPoint2: CGPoint(x: cx - r * 0.85, y: cy - r * 0.75)
+                )
+                path.addLine(to: CGPoint(x: cx, y: cy - r * 0.56))
+                path.addLine(to: CGPoint(x: cx + r * 0.22, y: cy - r * 0.88))
+                path.addCurve(
+                    to: CGPoint(x: cx, y: cy + r),
+                    controlPoint1: CGPoint(x: cx + r * 0.85, y: cy - r * 0.75),
+                    controlPoint2: CGPoint(x: cx + r * 0.95, y: cy + r * 0.25)
+                )
+                path.close()
+                color.withAlphaComponent(0.95).setFill()
+                path.fill()
+                UIColor.white.withAlphaComponent(0.45).setFill()
+                UIBezierPath(ovalIn: CGRect(x: cx - r * 0.22, y: cy - r * 0.15, width: r * 0.44, height: r * 0.70)).fill()
+            case "stars":
+                // Crisp 4-point sparkle star.
+                let path = UIBezierPath()
+                let inner = r * 0.28
+                let pts: [CGPoint] = [
+                    CGPoint(x: cx, y: cy - r),
+                    CGPoint(x: cx + inner, y: cy - inner),
+                    CGPoint(x: cx + r, y: cy),
+                    CGPoint(x: cx + inner, y: cy + inner),
+                    CGPoint(x: cx, y: cy + r),
+                    CGPoint(x: cx - inner, y: cy + inner),
+                    CGPoint(x: cx - r, y: cy),
+                    CGPoint(x: cx - inner, y: cy - inner)
+                ]
+                path.move(to: pts[0])
+                for p in pts.dropFirst() { path.addLine(to: p) }
+                path.close()
+                color.withAlphaComponent(0.96).setFill()
+                path.fill()
+            case "snow":
+                // Delicate 6-ray crystalline snowflake.
+                cg.setStrokeColor(color.withAlphaComponent(0.95).cgColor)
+                cg.setLineWidth(max(1.4, size * 0.14))
+                cg.setLineCap(.round)
+                for i in 0 ..< 6 {
+                    let a = CGFloat(i) * (.pi / 3.0)
+                    let ex = cx + cos(a) * r
+                    let ey = cy + sin(a) * r
+                    cg.move(to: CGPoint(x: cx, y: cy))
+                    cg.addLine(to: CGPoint(x: ex, y: ey))
+                    let branchLen = r * 0.34
+                    let bx = cx + cos(a) * (r * 0.58)
+                    let by = cy + sin(a) * (r * 0.58)
+                    cg.move(to: CGPoint(x: bx, y: by))
+                    cg.addLine(to: CGPoint(x: bx + cos(a + 0.65) * branchLen, y: by + sin(a + 0.65) * branchLen))
+                    cg.move(to: CGPoint(x: bx, y: by))
+                    cg.addLine(to: CGPoint(x: bx + cos(a - 0.65) * branchLen, y: by + sin(a - 0.65) * branchLen))
+                }
+                cg.strokePath()
+            case "fire":
+                // Tapered rising flame ember teardrop.
+                let path = UIBezierPath()
+                path.move(to: CGPoint(x: cx, y: cy - r))
+                path.addQuadCurve(to: CGPoint(x: cx, y: cy + r * 0.85), controlPoint: CGPoint(x: cx + r * 0.85, y: cy + r * 0.25))
+                path.addQuadCurve(to: CGPoint(x: cx, y: cy - r), controlPoint: CGPoint(x: cx - r * 0.85, y: cy + r * 0.25))
+                path.close()
+                color.withAlphaComponent(0.95).setFill()
+                path.fill()
+                UIColor(rgb: 0xFFE57F).withAlphaComponent(0.75).setFill()
+                UIBezierPath(ovalIn: CGRect(x: cx - r * 0.25, y: cy, width: r * 0.5, height: r * 0.5)).fill()
+            default:
+                cg.setFillColor(color.withAlphaComponent(0.92).cgColor)
+                cg.fillEllipse(in: CGRect(x: cx - r * 0.65, y: cy - r * 0.65, width: r * 1.3, height: r * 1.3))
+            }
         }
         return img.cgImage
     }
 
-    private func setupParticles(color: UIColor, birthRate: Float, velocity: CGFloat, yAccel: CGFloat, size: CGFloat, fromBottom: Bool, spin: CGFloat) {
+    private func setupParticles(kind: String, color: UIColor, birthRate: Float, velocity: CGFloat, yAccel: CGFloat, size: CGFloat, fromBottom: Bool, spin: CGFloat) {
         let layer = CAEmitterLayer()
         layer.emitterShape = .line
         let cell = CAEmitterCell()
-        cell.contents = self.makeParticleImage(color: color, size: size)
+        cell.contents = self.makeParticleImage(kind: kind, color: color, size: size)
         cell.birthRate = birthRate
         cell.lifetime = 5.0
         cell.lifetimeRange = 1.8
@@ -2198,7 +2279,7 @@ private final class GGDiscordHeaderOverlay {
         var cardRect: CGRect = .zero
         var shouldHideBanner = true
         if let anchor = bannerAnchor {
-            totalWidth = max(self.lastWidth, anchor.frame.width)
+            totalWidth = self.lastWidth > 40.0 ? self.lastWidth : anchor.frame.width
             rawHeight = max(0.0, anchor.frame.maxY)
             shouldHideBanner = totalWidth < 40.0 || rawHeight < 88.0 || rawHeight > 440.0
             cardRect = CGRect(

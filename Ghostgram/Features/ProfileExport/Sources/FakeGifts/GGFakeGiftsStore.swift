@@ -39,6 +39,8 @@ struct GGFakeGiftRecord: Codable, Equatable {
     var number: Int32?
     /// When the gift's media was last refreshed from the server (file references expire).
     var refreshedAt: Int32
+    /// Whose profile shows the gift: nil = your own, otherwise another person's (visual only, on this device).
+    var targetPeer: GGPeerKey? = nil
 }
 
 private struct GGFakeGiftsFile: Codable {
@@ -92,6 +94,16 @@ final class GGFakeGiftsStore {
         }
     }
 
+    /// The account's fake gifts shown on the profile of `peerId` (yours or another person's).
+    func resolvedGifts(accountPeerId: PeerId, forPeer peerId: PeerId) -> [ProfileGiftsContext.State.StarGift] {
+        return self.resolvedGifts(accountPeerId: accountPeerId).filter { gift in
+            if let reference = gift.reference, case let .peer(owner, _) = reference {
+                return owner == peerId
+            }
+            return false
+        }
+    }
+
     func records(accountPeerId: PeerId) -> [GGFakeGiftRecord] {
         return self.lock.withLock {
             return self.recordSnapshots[accountPeerId] ?? []
@@ -110,7 +122,7 @@ final class GGFakeGiftsStore {
 
     /// The local id when `reference` points at one of this account's fake gifts.
     static func localId(of reference: StarGiftReference?, accountPeerId: PeerId) -> Int64? {
-        guard let reference = reference, case let .peer(peerId, id) = reference, peerId == accountPeerId, id < 0 else {
+        guard let reference = reference, case let .peer(_, id) = reference, id < 0 else {
             return nil
         }
         return id
@@ -176,8 +188,21 @@ final class GGFakeGiftsStore {
 
     // MARK: - Changes
 
+    /// Ensures an account entry exists even if `accountWillStart` ran before login completed.
+    func ensureAccount(_ account: Account) {
+        let entry = AccountEntry(id: account.id, peerId: account.peerId, basePath: account.basePath, postbox: account.postbox)
+        self.queue.async {
+            if self.entries[account.peerId] == nil {
+                self.entries[account.peerId] = entry
+                if GGFakeGiftsSettings.isEnabled.value {
+                    self.load(entry)
+                }
+            }
+        }
+    }
+
     /// Adds a copy of a gift to the account's profile. `completion` on the main thread.
-    func add(accountPeerId: PeerId, gift: StarGift, fromPeer: PeerId?, nameHidden: Bool, date: Int32, text: String?, entities: [MessageTextEntity]?, number: Int32?, completion: @escaping (Int64?) -> Void) {
+    func add(accountPeerId: PeerId, gift: StarGift, fromPeer: PeerId?, nameHidden: Bool, date: Int32, text: String?, entities: [MessageTextEntity]?, number: Int32?, targetPeer: PeerId? = nil, completion: @escaping (Int64?) -> Void) {
         self.queue.async {
             guard let entry = self.entries[accountPeerId] else {
                 Queue.mainQueue().async {
@@ -191,7 +216,7 @@ final class GGFakeGiftsStore {
             var records = entry.records ?? []
             let localId = entry.nextLocalId
             entry.nextLocalId = min(localId - 1, -1)
-            let record = GGFakeGiftRecord(localId: localId, gift: gift, fromPeer: fromPeer?.ggKey, nameHidden: nameHidden, date: date, text: text, entities: entities, savedToProfile: true, pinnedToTop: false, number: number, refreshedAt: Int32(Date().timeIntervalSince1970))
+            let record = GGFakeGiftRecord(localId: localId, gift: gift, fromPeer: fromPeer?.ggKey, nameHidden: nameHidden, date: date, text: text, entities: entities, savedToProfile: true, pinnedToTop: false, number: number, refreshedAt: Int32(Date().timeIntervalSince1970), targetPeer: targetPeer?.ggKey)
             records.insert(record, at: 0)
             self.commit(entry, records: records)
             Queue.mainQueue().async {
@@ -404,6 +429,7 @@ final class GGFakeGiftsStore {
     static func profileGift(_ record: GGFakeGiftRecord, accountPeerId: PeerId, peers: [PeerId: EnginePeer]) -> ProfileGiftsContext.State.StarGift {
         let fromPeerId = record.fromPeer.map(PeerId.init(ggKey:))
         let fromPeer = fromPeerId.flatMap { peers[$0] }
+        let ownerPeerId = record.targetPeer.map(PeerId.init(ggKey:)) ?? accountPeerId
         var gift = record.gift
         if case let .unique(uniqueGift) = gift {
             var attributes = uniqueGift.attributes.filter { attribute in
@@ -412,14 +438,14 @@ final class GGFakeGiftsStore {
                 }
                 return true
             }
-            attributes.append(.originalInfo(senderPeerId: record.nameHidden ? nil : fromPeerId, recipientPeerId: accountPeerId, date: record.date, text: record.text, entities: record.entities))
+            attributes.append(.originalInfo(senderPeerId: record.nameHidden ? nil : fromPeerId, recipientPeerId: ownerPeerId, date: record.date, text: record.text, entities: record.entities))
             gift = .unique(StarGift.UniqueGift(
                 id: uniqueGift.id,
                 giftId: uniqueGift.giftId,
                 title: uniqueGift.title,
                 number: uniqueGift.number,
                 slug: uniqueGift.slug,
-                owner: .peerId(accountPeerId),
+                owner: .peerId(ownerPeerId),
                 attributes: attributes,
                 availability: uniqueGift.availability,
                 giftAddress: nil,
@@ -439,7 +465,7 @@ final class GGFakeGiftsStore {
         }
         return ProfileGiftsContext.State.StarGift(
             gift: gift,
-            reference: .peer(peerId: accountPeerId, id: record.localId),
+            reference: .peer(peerId: ownerPeerId, id: record.localId),
             fromPeer: record.nameHidden ? nil : fromPeer,
             date: record.date,
             text: record.text,
