@@ -21,6 +21,7 @@
   "networkSpoof.profiles.removeConfirm": "Удалить эту подмену?",
   "networkSpoof.profiles.title": "Подмена профиля",
   "networkSpoof.profiles.unknownPeer": "Неизвестный чат",
+  "networkSpoof.visual.alsoPhonesPlaceholder": "Доп. номера (2-й, 3-й... через запятую или с новой строки)",
   "networkSpoof.visual.alsoUsernamesPlaceholder": "Также: @user2, @user3 (через пробел/запятую)",
   "networkSpoof.visual.avatarActive": "Свой 4K активен",
   "networkSpoof.visual.avatarHeader": "4K Аватар / Видео (до 3840px)",

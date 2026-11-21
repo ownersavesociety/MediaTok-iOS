@@ -21,6 +21,7 @@
   "networkSpoof.profiles.removeConfirm": "Remove this substitution?",
   "networkSpoof.profiles.title": "Profile substitution",
   "networkSpoof.profiles.unknownPeer": "Unknown chat",
+  "networkSpoof.visual.alsoPhonesPlaceholder": "Extra phones (2nd, 3rd... comma or new line)",
   "networkSpoof.visual.alsoUsernamesPlaceholder": "Also @user2, @user3 (comma or space)",
   "networkSpoof.visual.avatarActive": "Custom 4K active",
   "networkSpoof.visual.avatarHeader": "4K Photo / Video avatar (up to 3840px)",

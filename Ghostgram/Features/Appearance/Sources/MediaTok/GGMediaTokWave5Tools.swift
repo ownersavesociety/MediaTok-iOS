@@ -381,9 +381,15 @@ enum GGMediaTokWave5Tools {
     private static let stripMetaKey = "mediatok.privacy.stripFileMeta.v1"
     private static let confirmForwardKey = "mediatok.guard.confirmForward.v1"
     private static let confirmPhotoSendKey = "mediatok.guard.confirmPhotoSend.v1"
+    private static let streaksEnabledKey = "mediatok.streaks.enabled.v1"
 
     private static let guardLock = NSLock()
     private static var confirmedPhotoIds: Set<Int64> = []
+
+    static var isStreaksEnabled: Bool {
+        get { return UserDefaults.standard.bool(forKey: GGMediaTokWave5Tools.streaksEnabledKey) }
+        set { UserDefaults.standard.set(newValue, forKey: GGMediaTokWave5Tools.streaksEnabledKey) }
+    }
 
     static var isStripFileMetaEnabled: Bool {
         get {
@@ -428,7 +434,7 @@ enum GGMediaTokWave5Tools {
 
         // 5. Outgoing Streak Tracker
         GGOutgoingHooks.didEnqueue.register({ context, ids in
-            guard ids.contains(where: { $0 != nil }) else { return }
+            guard GGMediaTokWave5Tools.isStreaksEnabled, ids.contains(where: { $0 != nil }) else { return }
             let ns = context.peerId.namespace
             guard ns == Namespaces.Peer.CloudUser || ns == Namespaces.Peer.CloudGroup else { return }
             _ = GGMediaTokStreaks.recordActivity(peerId: context.peerId)
@@ -468,13 +474,17 @@ enum GGMediaTokWave5Tools {
             return true
         }
         if lower == ".streak" || lower == ".огонек" {
+            guard GGMediaTokWave5Tools.isStreaksEnabled else {
+                request.replace(ChatTextInputState())
+                GGMediaTokWave5Tools.showToast(context: request.context, text: "Серии общения выключены. Включить можно в меню MediaTok → Wave 5.")
+                return true
+            }
             guard let peerId = request.chatLocation.peerId else { return false }
             request.replace(ChatTextInputState())
             if let rec = GGMediaTokStreaks.record(for: peerId) {
-                let tier = GGMediaTokCoreLogic.streakTierBadge(days: rec.currentStreak)
-                GGMediaTokWave5Tools.showToast(context: request.context, text: "\(tier) Огонёк чата: \(rec.currentStreak) дн. (рекорд: \(rec.bestStreak), ❄️ заморозок: \(rec.freezesRemaining)/2). Отправь .streak card для стикера!")
+                GGMediaTokWave5Tools.showToast(context: request.context, text: "Серия общения: \(rec.currentStreak) дн. (рекорд: \(rec.bestStreak), заморозок: \(rec.freezesRemaining)/2).")
             } else {
-                GGMediaTokWave5Tools.showToast(context: request.context, text: "🔥 Огонёк ещё не начат — напишите сообщение!")
+                GGMediaTokWave5Tools.showToast(context: request.context, text: "Серия ещё не начата — отправьте сообщение.")
             }
             return true
         }
@@ -781,7 +791,7 @@ enum GGMediaTokWave5Tools {
     // MARK: Incoming Malware / RLO Inspector & Fresh Streak Tracking
 
     private static func decorateIncoming(_ decoration: inout GGMessageDecoration, message: Message) {
-        if message.flags.contains(.Incoming) {
+        if GGMediaTokWave5Tools.isStreaksEnabled && message.flags.contains(.Incoming) {
             GGMediaTokStreaks.recordIncomingIfFresh(message: message)
         }
         for m in message.media {
@@ -803,14 +813,13 @@ enum GGMediaTokWave5Tools {
     }
 
     private static func profileStreakRows(_ info: GGPeerInfoContext) -> [GGPeerInfoRow] {
-        if info.isSettings { return [] }
+        if info.isSettings || !GGMediaTokWave5Tools.isStreaksEnabled { return [] }
         guard let rec = GGMediaTokStreaks.record(for: info.peer.id) else { return [] }
-        let tier = GGMediaTokCoreLogic.streakTierBadge(days: rec.currentStreak)
         let context = info.context
         return [GGPeerInfoRow(
             id: "mediatok.streak",
-            label: "🔥 Огонёк общения",
-            text: "\(tier) \(rec.currentStreak) дн. подряд · Рекорд: \(rec.bestStreak) дн. · Заморозок: \(rec.freezesRemaining)/2 ❄️",
+            label: "Серия общения",
+            text: "\(rec.currentStreak) дн. (рекорд \(rec.bestStreak))",
             rightLabel: "\(rec.totalMessages) сообщ.",
             action: {
                 GGMediaTokWave5Tools.presentStreaksLeaderboard(context: context)
@@ -995,16 +1004,21 @@ enum GGMediaTokWave5Tools {
     static func presentHub(context: GGMenuContext) {
         let topCount = GGMediaTokStreaks.topStreaks(limit: 5).first?.record.currentStreak ?? 0
         let clipCount = GGMediaTokClipboard.allItems().count
+        let streaksState = GGMediaTokWave5Tools.isStreaksEnabled ? "ВКЛ" : "ВЫКЛ"
         let metaState = GGMediaTokWave5Tools.isStripFileMetaEnabled ? "ВКЛ" : "ВЫКЛ"
         let fwdState = GGMediaTokWave5Tools.isConfirmForwardEnabled ? "ВКЛ" : "ВЫКЛ"
         let photoState = GGMediaTokWave5Tools.isConfirmPhotoSendEnabled ? "ВКЛ" : "ВЫКЛ"
 
         let sheet = UIAlertController(
-            title: "🔥 MediaTok Wave 5 — Инструменты",
+            title: "MediaTok Wave 5 — Инструменты",
             message: "Команды: /s [запрос], /s! [тег], .card Заг | Подзаг | Стр, .streak, .clip, .q, .stats, .c, .color, .e2e",
             preferredStyle: .actionSheet
         )
-        sheet.addAction(UIAlertAction(title: "🔥 Огоньки общения (макс: \(topCount) дн.)", style: .default, handler: { _ in
+        sheet.addAction(UIAlertAction(title: "Серии общения (огонёк): \(streaksState)", style: .default, handler: { _ in
+            GGMediaTokWave5Tools.isStreaksEnabled.toggle()
+            context.presentToast("Серии общения: \(GGMediaTokWave5Tools.isStreaksEnabled ? "ВКЛ" : "ВЫКЛ")")
+        }))
+        sheet.addAction(UIAlertAction(title: "Список серий общения (макс: \(topCount) дн.)", style: .default, handler: { _ in
             GGMediaTokWave5Tools.presentStreaksLeaderboard(context: context.context)
         }))
         sheet.addAction(UIAlertAction(title: "📋 Буфер обмена (\(clipCount) фрагм.)", style: .default, handler: { _ in

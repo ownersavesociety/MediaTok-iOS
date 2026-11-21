@@ -1801,13 +1801,13 @@ public final class GGBottomBarStudioViewController: UITableViewController {
         } else if indexPath.row == 1 {
             cell.textLabel?.text = "Широкий бар без разделителей"
             let sw = UISwitch()
-            sw.isOn = UserDefaults.standard.bool(forKey: "mediatok.tabbar.wide")
+            sw.isOn = GGMediaTokLiquidUI.readGhostgramGlobalBool("interface.tabBar.wide", fallback: UserDefaults.standard.bool(forKey: "mediatok.tabbar.wide"))
             sw.addTarget(self, action: #selector(self.toggleWide(_:)), for: .valueChanged)
             cell.accessoryView = sw
         } else {
             cell.textLabel?.text = "Скрыть подписи под иконками"
             let sw = UISwitch()
-            sw.isOn = UserDefaults.standard.bool(forKey: "mediatok.tabbar.hideTitles")
+            sw.isOn = GGMediaTokLiquidUI.readGhostgramGlobalBool("interface.tabBar.hideTitles", fallback: UserDefaults.standard.bool(forKey: "mediatok.tabbar.hideTitles"))
             sw.addTarget(self, action: #selector(self.toggleHideTitles(_:)), for: .valueChanged)
             cell.accessoryView = sw
         }
@@ -1825,7 +1825,7 @@ public final class GGBottomBarStudioViewController: UITableViewController {
             GGThemeHooks.invalidate()
             let alert = UIAlertController(title: "Пресет применён!", message: "Выбран: \(preset.title)", preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default))
-            self.present(alert, animated: true)
+            GGModalPresenter.presentWhenReady(alert, from: self)
         }
     }
 

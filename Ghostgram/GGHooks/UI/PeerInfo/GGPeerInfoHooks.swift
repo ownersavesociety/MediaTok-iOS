@@ -185,6 +185,23 @@ public enum GGPeerInfoHooks {
     /// Policy (any `true`): hide one of Telegram's own items of a profile.
     public static let hidesItem = GGHookPoint<(GGPeerInfoItemKind, GGPeerInfoContext) -> Bool>("peerInfo.hidesItem")
 
+    /// Policy (any `true`): a feature draws its own header background inside `backgroundContainerView`
+    /// (e.g. a custom profile banner / theme), so the header treats it as having a colored backdrop
+    /// and uses crisp white title/subtitle/music/button styling.
+    public static let hasHeaderBackground = GGHookPoint<(EnginePeer.Id) -> Bool>("peerInfo.hasHeaderBackground")
+
+    public static func hasCustomHeaderBackground(peerId: EnginePeer.Id) -> Bool {
+        if GGPeerInfoHooks.hasHeaderBackground.isEmpty {
+            return false
+        }
+        for handler in GGPeerInfoHooks.hasHeaderBackground.handlers {
+            if handler(peerId) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// `context` is built only when a feature hides items.
     public static func hidesItem(_ kind: GGPeerInfoItemKind, context: @autoclosure () -> GGPeerInfoContext?) -> Bool {
         if GGPeerInfoHooks.hidesItem.isEmpty {

@@ -10,13 +10,49 @@ public enum GGVisualBadgeMode: Int, Codable, Equatable, CaseIterable {
     case hide = 5
 }
 
+public struct GGWornStarGift: Codable, Equatable {
+    public var id: Int64
+    public var fileId: Int64
+    public var title: String
+    public var slug: String
+    public var patternFileId: Int64
+    public var innerColor: Int32
+    public var outerColor: Int32
+    public var patternColor: Int32
+    public var textColor: Int32
+
+    public init(
+        id: Int64,
+        fileId: Int64,
+        title: String,
+        slug: String,
+        patternFileId: Int64,
+        innerColor: Int32,
+        outerColor: Int32,
+        patternColor: Int32,
+        textColor: Int32
+    ) {
+        self.id = id
+        self.fileId = fileId
+        self.title = title
+        self.slug = slug
+        self.patternFileId = patternFileId
+        self.innerColor = innerColor
+        self.outerColor = outerColor
+        self.patternColor = patternColor
+        self.textColor = textColor
+    }
+}
+
 public struct GGVisualPeerOverride: Codable, Equatable, GGSettingValue {
     public var name: String
     public var username: String
     public var alsoUsernames: String
     public var bio: String
     public var phone: String
+    public var alsoPhones: String
     public var badgeMode: GGVisualBadgeMode
+    public var wornStarGift: GGWornStarGift?
     public var avatarFileName: String
     public var avatarWidth: Int
     public var avatarHeight: Int
@@ -33,7 +69,9 @@ public struct GGVisualPeerOverride: Codable, Equatable, GGSettingValue {
         case alsoUsernames
         case bio
         case phone
+        case alsoPhones
         case badgeMode
+        case wornStarGift
         case avatarFileName
         case avatarWidth
         case avatarHeight
@@ -51,7 +89,9 @@ public struct GGVisualPeerOverride: Codable, Equatable, GGSettingValue {
         alsoUsernames: String = "",
         bio: String = "",
         phone: String = "",
+        alsoPhones: String = "",
         badgeMode: GGVisualBadgeMode = .default,
+        wornStarGift: GGWornStarGift? = nil,
         avatarFileName: String = "",
         avatarWidth: Int = 0,
         avatarHeight: Int = 0,
@@ -67,7 +107,9 @@ public struct GGVisualPeerOverride: Codable, Equatable, GGSettingValue {
         self.alsoUsernames = alsoUsernames
         self.bio = bio
         self.phone = phone
+        self.alsoPhones = alsoPhones
         self.badgeMode = badgeMode
+        self.wornStarGift = wornStarGift
         self.avatarFileName = avatarFileName
         self.avatarWidth = avatarWidth
         self.avatarHeight = avatarHeight
@@ -86,7 +128,9 @@ public struct GGVisualPeerOverride: Codable, Equatable, GGSettingValue {
         self.alsoUsernames = try c.decodeIfPresent(String.self, forKey: .alsoUsernames) ?? ""
         self.bio = try c.decodeIfPresent(String.self, forKey: .bio) ?? ""
         self.phone = try c.decodeIfPresent(String.self, forKey: .phone) ?? ""
+        self.alsoPhones = try c.decodeIfPresent(String.self, forKey: .alsoPhones) ?? ""
         self.badgeMode = try c.decodeIfPresent(GGVisualBadgeMode.self, forKey: .badgeMode) ?? .default
+        self.wornStarGift = try c.decodeIfPresent(GGWornStarGift.self, forKey: .wornStarGift)
         self.avatarFileName = try c.decodeIfPresent(String.self, forKey: .avatarFileName) ?? ""
         self.avatarWidth = try c.decodeIfPresent(Int.self, forKey: .avatarWidth) ?? 0
         self.avatarHeight = try c.decodeIfPresent(Int.self, forKey: .avatarHeight) ?? 0
@@ -104,7 +148,9 @@ public struct GGVisualPeerOverride: Codable, Equatable, GGSettingValue {
             && self.alsoUsernames.isEmpty
             && self.bio.isEmpty
             && self.phone.isEmpty
+            && self.alsoPhones.isEmpty
             && self.badgeMode == .default
+            && self.wornStarGift == nil
             && self.avatarFileName.isEmpty
             && self.avatarVideoFileName.isEmpty
             && self.remotePhotoUrl.isEmpty
@@ -290,11 +336,23 @@ public final class GGVisualProfileStore {
                         alsoList.append(item)
                     }
                 }
+                let phoneList = GGVisualProfileStore.splitPhones(override.phone)
+                let mainPhone = phoneList.first ?? ""
+                var extraPhones = [String]()
+                if phoneList.count > 1 {
+                    extraPhones.append(contentsOf: phoneList.dropFirst())
+                }
+                for item in GGVisualProfileStore.splitPhones(override.alsoPhones) {
+                    if item != mainPhone && !extraPhones.contains(item) {
+                        extraPhones.append(item)
+                    }
+                }
                 normalized.name = override.name.trimmingCharacters(in: .whitespacesAndNewlines)
                 normalized.username = mainToken
                 normalized.alsoUsernames = alsoList.joined(separator: ", ")
                 normalized.bio = override.bio.trimmingCharacters(in: .whitespacesAndNewlines)
-                normalized.phone = override.phone.trimmingCharacters(in: .whitespacesAndNewlines)
+                normalized.phone = mainPhone
+                normalized.alsoPhones = extraPhones.joined(separator: ", ")
                 if normalized.avatarFileName.isEmpty, let oldFileId = existing?.avatarFileId, oldFileId != 0 {
                     self.fileIdToPath.removeValue(forKey: oldFileId)
                     if let oldVideoId = existing?.avatarVideoFileId, oldVideoId != 0 {
@@ -463,10 +521,69 @@ public final class GGVisualProfileStore {
     }
 
     public func phone(for peerKey: GGPeerKey) -> String? {
-        guard let v = self.override(for: peerKey)?.phone, !v.isEmpty else {
+        guard let ov = self.override(for: peerKey) else {
             return nil
         }
-        return v
+        let mainTokens = GGVisualProfileStore.splitPhones(ov.phone)
+        if let first = mainTokens.first {
+            return first
+        }
+        return GGVisualProfileStore.splitPhones(ov.alsoPhones).first
+    }
+
+    public static func splitPhones(_ raw: String) -> [String] {
+        let separators = CharacterSet(charactersIn: ",;\n\r")
+        var seen = Set<String>()
+        var result = [String]()
+        for part in raw.components(separatedBy: separators) {
+            let clean = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else {
+                continue
+            }
+            if seen.insert(clean).inserted {
+                result.append(clean)
+            }
+        }
+        return result
+    }
+
+    public func additionalPhones(for peerKey: GGPeerKey) -> [String] {
+        guard let ov = self.override(for: peerKey) else {
+            return []
+        }
+        let primary = self.phone(for: peerKey)
+        var seen = Set<String>()
+        if let primary, !primary.isEmpty {
+            seen.insert(primary)
+        }
+        var result = [String]()
+        for item in GGVisualProfileStore.splitPhones(ov.phone).dropFirst() + GGVisualProfileStore.splitPhones(ov.alsoPhones) {
+            if seen.insert(item).inserted {
+                result.append(item)
+            }
+        }
+        return result
+    }
+
+    public func wornStarGift(for peerKey: GGPeerKey) -> GGWornStarGift? {
+        return self.override(for: peerKey)?.wornStarGift
+    }
+
+    public func setWornStarGift(_ gift: GGWornStarGift?, for peerKey: GGPeerKey) {
+        let nextRevision: Int32 = self.lock.withLock {
+            self.ensureLoadedLocked()
+            let keyStr = peerKey.stringValue
+            var cur = self.entries[keyStr] ?? GGVisualPeerOverride()
+            cur.wornStarGift = gift
+            if cur.isEmpty {
+                self.entries.removeValue(forKey: keyStr)
+            } else {
+                self.entries[keyStr] = cur
+            }
+            self.persistLocked()
+            return self.recordChangeLocked(touched: peerKey)
+        }
+        self.revisionPromise.set(nextRevision)
     }
 
     public func badgeMode(for peerKey: GGPeerKey) -> GGVisualBadgeMode {

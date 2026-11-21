@@ -239,7 +239,7 @@ final class GGFaceTracker {
         if face && landmarks && faceResult == nil {
             let rectRequest = VNDetectFaceRectanglesRequest()
             try? self.sequenceHandler.perform([rectRequest], on: pixelBuffer, orientation: orientation)
-            if let observations = rectRequest.results as? [VNFaceObservation],
+            if let observations = rectRequest.results,
                let observation = observations.max(by: { $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height }) {
                 faceResult = (observation.boundingBox, CGFloat(observation.roll?.doubleValue ?? 0.0), nil)
             }

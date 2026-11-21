@@ -15,6 +15,7 @@ import ContextUI
 import AppBundle
 import GGCore
 import GGHooks
+import GGSettingsUI
 
 private let ggVisualMaxAvatarDimension: Int = 3840
 
@@ -139,12 +140,9 @@ private func ggVisualEncode4kAvatar(from url: URL) -> (Data, Int, Int)? {
 }
 
 private func ggPresentVisualPhotoPicker(from controller: ViewController?, completion: @escaping (Data, Data?, Int, Int) -> Void) {
-    guard let host = controller?.view.window?.rootViewController ?? controller else {
+    let preferredRoot = controller?.view.window?.rootViewController ?? controller
+    guard preferredRoot != nil else {
         return
-    }
-    var topVC = host
-    while let presented = topVC.presentedViewController {
-        topVC = presented
     }
     var configuration = PHPickerConfiguration()
     configuration.selectionLimit = 1
@@ -154,7 +152,7 @@ private func ggPresentVisualPhotoPicker(from controller: ViewController?, comple
     box.retainCycle()
     picker.delegate = box
     picker.presentationController?.delegate = box
-    topVC.present(picker, animated: true)
+    GGModalPresenter.presentOnTopmost(picker, preferredRoot: preferredRoot)
 }
 
 enum GGVisualProfileSupport {
@@ -323,6 +321,7 @@ func ggSpoofMakeVisualEditorController(context: AccountContext, peerId: EnginePe
             GGSpoofRow(id: "field.username", kind: .input(text: current.username, placeholder: GGStrings.NetworkSpoof.Visual.mainUsernamePlaceholder)),
             GGSpoofRow(id: "field.also", kind: .input(text: current.alsoUsernames, placeholder: GGStrings.NetworkSpoof.Visual.alsoUsernamesPlaceholder)),
             GGSpoofRow(id: "field.phone", kind: .input(text: current.phone, placeholder: GGStrings.NetworkSpoof.Visual.phonePlaceholder)),
+            GGSpoofRow(id: "field.alsoPhones", kind: .multilineInput(text: current.alsoPhones, placeholder: GGStrings.NetworkSpoof.Visual.alsoPhonesPlaceholder)),
             GGSpoofRow(id: "field.bio", kind: .multilineInput(text: current.bio, placeholder: GGStrings.NetworkSpoof.Visual.bioPlaceholder))
         ])
 
@@ -351,6 +350,13 @@ func ggSpoofMakeVisualEditorController(context: AccountContext, peerId: EnginePe
             let _ = draftAtomic.modify { cur in
                 var copy = cur
                 copy.phone = val
+                return copy
+            }
+        }
+        model.text["field.alsoPhones"] = { val in
+            let _ = draftAtomic.modify { cur in
+                var copy = cur
+                copy.alsoPhones = val
                 return copy
             }
         }

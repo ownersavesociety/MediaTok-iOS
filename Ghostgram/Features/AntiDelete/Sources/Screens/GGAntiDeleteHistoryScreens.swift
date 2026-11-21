@@ -14,6 +14,7 @@ import LocalizedPeerData
 import ChatListUI
 import GGCore
 import GGFeaturesShared
+import GGSettingsUI
 
 // «История»: segments «Удалённые / Изменённые», chats grouped by kind and by folder (category
 // folders included), per-chat lists with pages, export / import / clear. Everything reads the
@@ -97,16 +98,6 @@ func ggFolderContains(_ data: ChatListFilterData, peer: EnginePeer, isContact: B
 
 private func ggAntiDeleteDate(_ timestamp: Int32, presentationData: PresentationData) -> String {
     return stringForMediumDate(timestamp: timestamp, strings: presentationData.strings, dateTimeFormat: presentationData.dateTimeFormat, withTime: false)
-}
-
-private func ggNativePresenter(_ controller: ViewController?) -> UIViewController? {
-    guard var presenter = controller?.view.window?.rootViewController else {
-        return nil
-    }
-    while let presented = presenter.presentedViewController {
-        presenter = presented
-    }
-    return presenter
 }
 
 // MARK: - Root
@@ -323,14 +314,7 @@ private func ggExportHistory(context: AccountContext, controller: ViewController
                 let _ = try? FileManager.default.removeItem(at: url)
             }
         }
-        if let presenter = ggNativePresenter(controller) {
-            if let popover = activity.popoverPresentationController {
-                popover.sourceView = presenter.view
-                popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0.0, height: 0.0)
-                popover.permittedArrowDirections = []
-            }
-            presenter.present(activity, animated: true)
-        }
+        GGModalPresenter.presentOnTopmost(activity, preferredRoot: controller?.view.window?.rootViewController)
     })
 }
 
@@ -357,9 +341,6 @@ private final class GGADDocumentPickerDelegate: NSObject, UIDocumentPickerDelega
 }
 
 private func ggImportHistory(context: AccountContext, controller: ViewController?) {
-    guard let presenter = ggNativePresenter(controller) else {
-        return
-    }
     let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.json], asCopy: true)
     let delegate = GGADDocumentPickerDelegate(completion: { [weak controller] url in
         guard let url else {
@@ -399,7 +380,7 @@ private func ggImportHistory(context: AccountContext, controller: ViewController
         })
     })
     picker.delegate = delegate
-    presenter.present(picker, animated: true)
+    GGModalPresenter.presentOnTopmost(picker, preferredRoot: controller?.view.window?.rootViewController)
 }
 
 // MARK: - One chat

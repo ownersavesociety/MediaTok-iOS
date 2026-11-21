@@ -253,18 +253,7 @@ private final class GGChatExportDelegateHolder {
 }
 
 private func ggPEPresentNative(_ controller: UIViewController, from presenter: ViewController?) {
-    guard var top = presenter?.view.window?.rootViewController else {
-        return
-    }
-    while let presented = top.presentedViewController {
-        top = presented
-    }
-    if let popover = controller.popoverPresentationController {
-        popover.sourceView = top.view
-        popover.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 0.0, height: 0.0)
-        popover.permittedArrowDirections = []
-    }
-    top.present(controller, animated: true)
+    GGModalPresenter.presentOnTopmost(controller, preferredRoot: presenter?.view.window?.rootViewController)
 }
 
 func ggMakeChatExportProgressScreen(context: AccountContext) -> ViewController {

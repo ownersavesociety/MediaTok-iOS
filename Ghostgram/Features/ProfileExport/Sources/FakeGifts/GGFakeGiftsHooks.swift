@@ -76,12 +76,20 @@ enum GGFakeGiftsHooks {
             }
             let targetPeerId = peer.id
             weak let controller = info.controller
-            return [.action(ContextMenuActionItem(text: "Подарить NFT-подарок (визуально)", icon: { theme in
-                return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Gift"), color: theme.contextMenu.primaryColor)
-            }, action: { contextController, _ in
-                contextController?.dismiss(completion: nil)
-                ggPromptAddFakeUniqueGift(context: context, from: controller, targetPeerId: targetPeerId)
-            }))]
+            return [
+                .action(ContextMenuActionItem(text: "Подарить NFT-подарок (визуально)", icon: { theme in
+                    return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Gift"), color: theme.contextMenu.primaryColor)
+                }, action: { contextController, _ in
+                    contextController?.dismiss(completion: nil)
+                    ggPromptAddFakeUniqueGift(context: context, from: controller, targetPeerId: targetPeerId)
+                })),
+                .action(ContextMenuActionItem(text: "Подарить обычный подарок (визуально)", icon: { theme in
+                    return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Gift"), color: theme.contextMenu.primaryColor)
+                }, action: { contextController, _ in
+                    contextController?.dismiss(completion: nil)
+                    ggPresentGenericGiftPicker(context: context, from: controller, targetPeerId: targetPeerId)
+                }))
+            ]
         })
     }
 }

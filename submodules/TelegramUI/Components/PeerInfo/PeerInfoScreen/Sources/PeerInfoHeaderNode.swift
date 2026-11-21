@@ -616,11 +616,32 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         let actionButtonKeys: [PeerInfoHeaderButtonKey] = (self.isSettings || self.isMyProfile) ? [] : peerInfoHeaderActionButtons(peer: peer, isSecretChat: isSecretChat, isContact: isContact)
         let buttonKeys: [PeerInfoHeaderButtonKey] = (self.isSettings || self.isMyProfile) ? [] : peerInfoHeaderButtons(peer: peer, cachedData: cachedData, isOpenedFromChat: self.isOpenedFromChat, isExpanded: true, videoCallsEnabled: width > 320.0 && self.videoCallsEnabled, isSecretChat: isSecretChat, isContact: isContact, threadInfo: threadData?.info)
         
+        let effectiveEmojiStatus: PeerEmojiStatus?
+        if let peer, let worn = GGVisualProfileStore.shared.wornStarGift(for: peer.id.ggKey) {
+            effectiveEmojiStatus = PeerEmojiStatus(
+                content: .starGift(
+                    id: worn.id,
+                    fileId: worn.fileId,
+                    title: worn.title,
+                    slug: worn.slug,
+                    patternFileId: worn.patternFileId,
+                    innerColor: worn.innerColor,
+                    outerColor: worn.outerColor,
+                    patternColor: worn.patternColor,
+                    textColor: worn.textColor
+                ),
+                expirationDate: nil
+            )
+        } else {
+            effectiveEmojiStatus = peer?.emojiStatus
+        }
+        let hasCustomBanner = peer.map { GGPeerInfoHooks.hasCustomHeaderBackground(peerId: $0.id) } ?? false
+
         let backgroundCoverSubject: PeerInfoCoverComponent.Subject?
         var backgroundCoverAnimateIn = false
         var backgroundDefaultHeight: CGFloat = 254.0
         var hasBackground = false
-        if let status = peer?.emojiStatus, case .starGift = status.content {
+        if let status = effectiveEmojiStatus, case .starGift = status.content {
             backgroundCoverSubject = .status(status)
             if !self.didSetupBackgroundCover {
                 if !self.isSettings {
@@ -642,6 +663,9 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             }
         } else {
             backgroundCoverSubject = nil
+        }
+        if hasCustomBanner {
+            hasBackground = true
         }
         
         let currentSavedMusic = self.profileMusic(peer: peer, screenData: screenData)
@@ -672,13 +696,17 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                 isScam: peer.isScam,
                 isFake: peer.isFake
             )
+            let hasLocalWornGift = GGVisualProfileStore.shared.wornStarGift(for: peer.id.ggKey) != nil
             if peer.id == self.context.account.peerId && !self.isSettings && !self.isMyProfile {
                 credibilityIcon = .none
+                if hasLocalWornGift, let emojiStatus = effectiveEmojiStatus {
+                    statusIcon = .emojiStatus(emojiStatus)
+                }
             } else if resolvedBadges.fake {
                 credibilityIcon = .fake
             } else if resolvedBadges.scam {
                 credibilityIcon = .scam
-            } else if resolvedBadges.allowEmojiStatus, let emojiStatus = peer.emojiStatus {
+            } else if (resolvedBadges.allowEmojiStatus || hasLocalWornGift), let emojiStatus = effectiveEmojiStatus {
                 statusIcon = .emojiStatus(emojiStatus)
             } else if resolvedBadges.premium && !premiumConfiguration.isPremiumDisabled && (peer.id != self.context.account.peerId || self.isSettings || self.isMyProfile || GGVisualProfileStore.shared.badgeMode(for: peer.id.ggKey) == .premium) {
                 credibilityIcon = .premium
@@ -713,11 +741,11 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         
         let avatarFrame = CGRect(origin: CGPoint(x: hasStrip ? bandCenteredOrigin(width: avatarSize, margin: 16.0) : floor((width - avatarSize) / 2.0), y: statusBarHeight + 22.0), size: CGSize(width: avatarSize, height: avatarSize))
         
-        let regularNavigationContentsAccentColor: UIColor = peer?.effectiveProfileColor != nil ? .white : presentationData.theme.list.itemAccentColor
+        let regularNavigationContentsAccentColor: UIColor = (peer?.effectiveProfileColor != nil || hasCustomBanner) ? .white : presentationData.theme.list.itemAccentColor
         let collapsedHeaderNavigationContentsAccentColor = presentationData.theme.list.itemAccentColor
         let expandedAvatarNavigationContentsAccentColor: UIColor = .white
         
-        let regularNavigationContentsPrimaryColor: UIColor = peer?.effectiveProfileColor != nil ? .white : presentationData.theme.list.itemPrimaryTextColor
+        let regularNavigationContentsPrimaryColor: UIColor = (peer?.effectiveProfileColor != nil || hasCustomBanner) ? .white : presentationData.theme.list.itemPrimaryTextColor
         let collapsedHeaderNavigationContentsPrimaryColor = presentationData.theme.list.itemPrimaryTextColor
         let expandedAvatarNavigationContentsPrimaryColor: UIColor = .white
         
@@ -729,13 +757,13 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         let collapsedHeaderButtonBackgroundColor: UIColor = .clear
         let expandedAvatarHeaderButtonBackgroundColor: UIColor = UIColor(white: 0.0, alpha: 0.5)
         
-        let regularContentButtonForegroundColor: UIColor = peer?.effectiveProfileColor != nil ? UIColor.white : presentationData.theme.list.itemAccentColor
+        let regularContentButtonForegroundColor: UIColor = (peer?.effectiveProfileColor != nil || hasCustomBanner) ? UIColor.white : presentationData.theme.list.itemAccentColor
         let collapsedHeaderContentButtonForegroundColor = presentationData.theme.list.itemAccentColor
         let expandedAvatarContentButtonForegroundColor: UIColor = .white
         
         var hasCoverColor = false
         let regularNavigationContentsSecondaryColor: UIColor
-        if let emojiStatus = peer?.emojiStatus, case let .starGift(_, _, _, _, _, innerColor, outerColor, _, _) = emojiStatus.content {
+        if let emojiStatus = effectiveEmojiStatus, case let .starGift(_, _, _, _, _, innerColor, outerColor, _, _) = emojiStatus.content {
             let mainColor = UIColor(rgb: UInt32(bitPattern: innerColor))
             let secondaryColor = UIColor(rgb: UInt32(bitPattern: outerColor))
             regularNavigationContentsSecondaryColor = UIColor(white: 1.0, alpha: 0.6).blitOver(mainColor.withMultiplied(hue: 1.0, saturation: 2.2, brightness: 1.5), alpha: 1.0)
@@ -765,6 +793,11 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             regularContentButtonBackgroundColor = baseContentButtonBackgroundColor.blendOver(background: backgroundColors.main)
             regularHeaderButtonBackgroundColor = baseButtonBackgroundColor.blendOver(background: (backgroundColors.secondary ?? backgroundColors.main).mixedWith(backgroundColors.main, alpha: 0.1))
             
+            hasCoverColor = true
+        } else if hasCustomBanner {
+            regularNavigationContentsSecondaryColor = UIColor(white: 1.0, alpha: 0.72)
+            regularContentButtonBackgroundColor = UIColor(white: presentationData.theme.overallDarkAppearance ? 0.0 : 1.0, alpha: 0.25)
+            regularHeaderButtonBackgroundColor = UIColor(white: 0.0, alpha: 0.28)
             hasCoverColor = true
         } else {
             regularNavigationContentsSecondaryColor = presentationData.theme.list.itemSecondaryTextColor
@@ -932,7 +965,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             
             headerButtonBackgroundColor = regularHeaderButtonBackgroundColor.mixedWith(collapsedHeaderButtonBackgroundColor, alpha: effectiveTransitionFraction)
             
-            if let status = peer?.emojiStatus, case let .starGift(_, _, _, _, _, innerColor, outerColor, patternColorValue, _) = status.content {
+            if let status = effectiveEmojiStatus, case let .starGift(_, _, _, _, _, innerColor, outerColor, patternColorValue, _) = status.content {
                 let _ = innerColor
                 ratingBackgroundColor = UIColor(white: 1.0, alpha: 1.0).mixedWith(accentRatingBackgroundColor, alpha: effectiveTransitionFraction)
                 

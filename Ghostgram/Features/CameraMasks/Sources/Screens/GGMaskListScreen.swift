@@ -9,6 +9,7 @@ import AccountContext
 import ItemListUI
 import PresentationDataUtils
 import GGCore
+import GGSettingsUI
 
 /// One row of the zone's own list screens (masks, studio, virtual camera). The content is plain
 /// data (compared to decide what to redraw); the actions are closures looked up by row id.
@@ -336,17 +337,5 @@ class GGPickerDelegateBox: NSObject {
 
 /// Presents a native controller over the topmost one of a list screen.
 func ggPresentNative(_ controller: UIViewController, from viewController: ViewController?) {
-    guard let root = viewController?.view.window?.rootViewController else {
-        return
-    }
-    var presenter = root
-    while let presented = presenter.presentedViewController {
-        presenter = presented
-    }
-    if let popover = controller.popoverPresentationController {
-        popover.sourceView = presenter.view
-        popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0.0, height: 0.0)
-        popover.permittedArrowDirections = []
-    }
-    presenter.present(controller, animated: true)
+    GGModalPresenter.presentOnTopmost(controller, preferredRoot: viewController?.view.window?.rootViewController)
 }

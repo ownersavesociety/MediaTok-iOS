@@ -69,7 +69,54 @@ jobs:
           /tmp/mediatok_security_tests
           rm -f /tmp/mediatok_security_tests
 
-      - name: Build MediaTok Ghost IPA
+      - name: Run iOS Simulator Runtime Tests (UIKit + CoreText + CoreLogic)
+        run: |
+          set -euxo pipefail
+          cd /Users/Shared/telegram-ios
+          SIM_SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          echo "Using iOS Simulator SDK: $SIM_SDK"
+          swiftc -sdk "$SIM_SDK" -target arm64-apple-ios16.0-simulator -parse-as-library -warnings-as-errors -O \
+            Ghostgram/Features/Appearance/Sources/MediaTok/GGMediaTokCoreLogic.swift \
+            Ghostgram/Features/Appearance/Tests/GGMediaTokSecurityTestsMain.swift \
+            -o /tmp/mediatok_ios_security_tests
+          swiftc -sdk "$SIM_SDK" -target arm64-apple-ios16.0-simulator -parse-as-library -warnings-as-errors -O \
+            -framework UIKit -framework CoreImage -framework CoreText \
+            Ghostgram/Features/Appearance/Sources/MediaTok/GGMediaTokCoreLogic.swift \
+            Ghostgram/Features/Appearance/Tests/GGMediaTokiOSSimTestsMain.swift \
+            -o /tmp/mediatok_ios_uikit_tests
+          SIM_UDID=$(python3 - <<'PY'
+          import json, subprocess
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          candidates = []
+          for rt, devs in data.get("devices", {}).items():
+              if "iOS" not in rt:
+                  continue
+              for d in devs:
+                  if d.get("isAvailable") and "iPhone" in d.get("name", ""):
+                      candidates.append((d.get("name", ""), d.get("udid", "")))
+          for pref in ("iPhone 13", "iPhone 15", "iPhone 16", "iPhone 17"):
+              for name, udid in candidates:
+                  if pref in name:
+                      print(udid)
+                      raise SystemExit(0)
+          if candidates:
+              print(candidates[0][1])
+          PY
+          )
+          echo "Selected iOS Simulator UDID: ${SIM_UDID:-none}"
+          if [ -n "${SIM_UDID:-}" ]; then
+            xcrun simctl boot "$SIM_UDID" || true
+            xcrun simctl bootstatus "$SIM_UDID" -b
+            xcrun simctl spawn "$SIM_UDID" /tmp/mediatok_ios_security_tests
+            xcrun simctl spawn "$SIM_UDID" /tmp/mediatok_ios_uikit_tests
+            xcrun simctl shutdown "$SIM_UDID" || true
+          else
+            echo "::notice::No preinstalled iPhone simulator runtime on runner; SDK -warnings-as-errors compile checks passed."
+            xcrun simctl list runtimes || true
+          fi
+          rm -f /tmp/mediatok_ios_security_tests /tmp/mediatok_ios_uikit_tests
+
+      - name: Build MediaTok IPA
         run: |
           set -euxo pipefail
           SOURCE_DIR=/Users/Shared/telegram-ios
@@ -132,10 +179,45 @@ jobs:
           [ -f "$SOURCE_DIR/build/artifacts/Telegram.DSYMs.zip" ] && cp "$SOURCE_DIR/build/artifacts/Telegram.DSYMs.zip" "$GITHUB_WORKSPACE/dist/MediaTok.DSYMs.zip" || true
           ls -lh "$GITHUB_WORKSPACE/dist"
 
+      - name: Verify Built MediaTok.ipa Integrity & Resources
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/ipa_verify
+          mkdir -p /tmp/ipa_verify
+          unzip -q "$GITHUB_WORKSPACE/dist/MediaTok.ipa" -d /tmp/ipa_verify
+          APP_PATH=$(find /tmp/ipa_verify/Payload -maxdepth 1 -name "*.app" | head -n 1)
+          test -n "$APP_PATH"
+          plutil -lint "$APP_PATH/Info.plist"
+          EXEC_NAME=$(python3 - <<'PY' "$APP_PATH/Info.plist" "$APP_VERSION" "$BUILD_NUMBER"
+          import plistlib, sys
+          info_path, exp_ver, exp_build = sys.argv[1:4]
+          with open(info_path, "rb") as f:
+              pl = plistlib.load(f)
+          bid = pl.get("CFBundleIdentifier", "")
+          ver = str(pl.get("CFBundleShortVersionString", ""))
+          bld = str(pl.get("CFBundleVersion", ""))
+          exe = pl.get("CFBundleExecutable", "")
+          assert bid == "ph.telegra.Telegraph", f"Unexpected bundle id: {bid}"
+          assert ver == exp_ver, f"Version mismatch: {ver} != {exp_ver}"
+          assert bld == exp_build, f"Build mismatch: {bld} != {exp_build}"
+          assert exe, "Missing CFBundleExecutable"
+          print(exe)
+          PY
+          )
+          BIN_PATH="$APP_PATH/$EXEC_NAME"
+          test -f "$BIN_PATH"
+          lipo -info "$BIN_PATH" | grep -q "arm64"
+          BIN_SIZE=$(stat -f%z "$BIN_PATH")
+          test "$BIN_SIZE" -gt 10485760
+          FONT_COUNT=$(find "$APP_PATH" -name "mt_*.ttf" | wc -l | tr -d ' ')
+          echo "Verified app=$(basename "$APP_PATH") binSize=$BIN_SIZE fonts=$FONT_COUNT"
+          test "$FONT_COUNT" -ge 80
+          rm -rf /tmp/ipa_verify
+
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: MediaTok-iOS-Ghost-${{ env.APP_VERSION }}-b${{ env.BUILD_NUMBER }}
+          name: MediaTok-iOS-${{ env.APP_VERSION }}-b${{ env.BUILD_NUMBER }}
           path: dist/
           retention-days: 30
 
@@ -143,7 +225,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="ios-ghost-v${APP_VERSION}-b${BUILD_NUMBER}"
+          TAG="ios-v${APP_VERSION}-b${BUILD_NUMBER}"
           python3 - <<'PY' "$TAG" "$APP_VERSION" "$BUILD_NUMBER" "$GITHUB_WORKSPACE/dist/MediaTok.ipa" "$GITHUB_WORKSPACE/dist/apps.json"
           import datetime, json, os, sys
           tag, app_ver, build_num, ipa_path, out_path = sys.argv[1:6]

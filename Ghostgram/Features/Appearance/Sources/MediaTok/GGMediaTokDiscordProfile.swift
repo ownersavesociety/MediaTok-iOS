@@ -2265,39 +2265,38 @@ private final class GGDiscordHeaderOverlay {
     private func refresh() {
         guard let node = self.node, let peerId = self.peerId else { return }
         let profile = GGDiscordProfileStore.shared.profile(for: peerId)
-        let bannerAnchor = self.bannerContainer ?? node.view.subviews.first
-
-        // 1. 4K Banner Image (rounded card with safe bounds & smart vertical framing)
-        let allCorners: CACornerMask = [
-            .layerMinXMinYCorner,
-            .layerMaxXMinYCorner,
-            .layerMinXMaxYCorner,
-            .layerMaxXMaxYCorner
-        ]
-        var totalWidth: CGFloat = 0.0
-        var rawHeight: CGFloat = 0.0
-        var cardRect: CGRect = .zero
-        var shouldHideBanner = true
-        if let anchor = bannerAnchor {
-            totalWidth = self.lastWidth > 40.0 ? self.lastWidth : anchor.frame.width
-            rawHeight = max(0.0, anchor.frame.maxY)
-            shouldHideBanner = totalWidth < 40.0 || rawHeight < 88.0 || rawHeight > 440.0
-            cardRect = CGRect(
-                x: 8.0,
-                y: 4.0,
-                width: max(0.0, totalWidth - 16.0),
-                height: max(0.0, rawHeight - 8.0)
-            )
-        }
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
+        guard let anchor = self.bannerContainer else {
+            self.bannerImageView?.removeFromSuperview()
+            self.bannerImageView = nil
+            self.bannerScrimLayer = nil
+            self.loadedBannerFile = ""
+            self.nitroTintView?.removeFromSuperview()
+            self.nitroTintView = nil
+            self.nitroGradientLayer = nil
+            self.effectView?.removeFromSuperview()
+            self.effectView = nil
+            return
+        }
+
+        // 1. 4K Banner Image — full-bleed inside `backgroundBannerView` (`anchor`) behind avatar,
+        //    title, status, Telegram music and header buttons (no floating rounded box or right gap).
+        let visibleHeight = max(0.0, anchor.frame.maxY)
+        let shouldHideBanner = anchor.bounds.width < 40.0 || visibleHeight < 20.0
+        let bannerRect = CGRect(
+            x: 0.0,
+            y: anchor.bounds.height - visibleHeight,
+            width: anchor.bounds.width,
+            height: visibleHeight
+        )
+
         var hasBanner = false
         if let profile,
-           let bannerUrl = GGDiscordProfileStore.shared.bannerFileURL(for: profile),
-           let anchor = bannerAnchor {
+           let bannerUrl = GGDiscordProfileStore.shared.bannerFileURL(for: profile) {
             hasBanner = true
             let iv: UIImageView
             if let existing = self.bannerImageView {
@@ -2307,17 +2306,13 @@ private final class GGDiscordHeaderOverlay {
                 iv.contentMode = .scaleAspectFill
                 iv.clipsToBounds = true
                 iv.isUserInteractionEnabled = false
-                iv.layer.cornerRadius = 22.0
-                iv.layer.cornerCurve = .continuous
-                iv.layer.maskedCorners = allCorners
-                iv.layer.borderWidth = 1.0
-                iv.layer.borderColor = UIColor.white.withAlphaComponent(0.14).cgColor
                 let scrim = CAGradientLayer()
                 scrim.colors = [
-                    UIColor.black.withAlphaComponent(0.18).cgColor,
-                    UIColor.clear.cgColor,
-                    UIColor.black.withAlphaComponent(0.35).cgColor
+                    UIColor.black.withAlphaComponent(0.28).cgColor,
+                    UIColor.black.withAlphaComponent(0.10).cgColor,
+                    UIColor.black.withAlphaComponent(0.58).cgColor
                 ]
+                scrim.locations = [0.0, 0.45, 1.0]
                 iv.layer.addSublayer(scrim)
                 self.bannerScrimLayer = scrim
                 self.bannerImageView = iv
@@ -2328,12 +2323,13 @@ private final class GGDiscordHeaderOverlay {
                     GGDiscordBannerProcessor.displayBannerImage(from: $0)
                 }
             }
-            if iv.superview !== node.view {
-                node.view.insertSubview(iv, aboveSubview: anchor)
+            if iv.superview !== anchor {
+                anchor.addSubview(iv)
             }
+            anchor.bringSubviewToFront(iv)
             iv.isHidden = shouldHideBanner
             if !shouldHideBanner {
-                iv.frame = cardRect
+                iv.frame = bannerRect
                 self.bannerScrimLayer?.frame = iv.bounds
             }
         } else {
@@ -2347,8 +2343,7 @@ private final class GGDiscordHeaderOverlay {
         let nitroId = profile?.nitroThemeId ?? "none"
         if nitroId != "none" && !nitroId.isEmpty,
            let spec = GGDiscordProfileStore.nitroThemes.first(where: { $0.id == nitroId }),
-           spec.colors.count >= 2,
-           let anchor = bannerAnchor {
+           spec.colors.count >= 2 {
             let tv: UIView
             let gl: CAGradientLayer
             if let existing = self.nitroTintView, let existingLayer = self.nitroGradientLayer {
@@ -2358,9 +2353,6 @@ private final class GGDiscordHeaderOverlay {
                 tv = UIView()
                 tv.isUserInteractionEnabled = false
                 tv.clipsToBounds = true
-                tv.layer.cornerRadius = 22.0
-                tv.layer.cornerCurve = .continuous
-                tv.layer.maskedCorners = allCorners
                 gl = CAGradientLayer()
                 gl.startPoint = CGPoint(x: 0.0, y: 0.0)
                 gl.endPoint = CGPoint(x: 1.0, y: 1.0)
@@ -2368,15 +2360,15 @@ private final class GGDiscordHeaderOverlay {
                 self.nitroTintView = tv
                 self.nitroGradientLayer = gl
             }
-            let alpha: CGFloat = hasBanner ? 0.34 : 0.62
+            let alpha: CGFloat = hasBanner ? 0.34 : 0.72
             gl.colors = spec.colors.map { $0.withAlphaComponent(alpha).cgColor }
-            let targetBelow = self.bannerImageView ?? anchor
-            if tv.superview !== node.view {
-                node.view.insertSubview(tv, aboveSubview: targetBelow)
+            if tv.superview !== anchor {
+                anchor.addSubview(tv)
             }
+            anchor.bringSubviewToFront(tv)
             tv.isHidden = shouldHideBanner
             if !shouldHideBanner {
-                tv.frame = cardRect
+                tv.frame = bannerRect
                 gl.frame = tv.bounds
             }
         } else {
@@ -2387,25 +2379,22 @@ private final class GGDiscordHeaderOverlay {
 
         // 2. Animated Profile Effect
         let effectId = profile?.effectId ?? "none"
-        if effectId != "none" && !effectId.isEmpty, let anchor = bannerAnchor {
+        if effectId != "none" && !effectId.isEmpty {
             let ev: GGDiscordEffectView
             if let existing = self.effectView {
                 ev = existing
             } else {
                 ev = GGDiscordEffectView(frame: .zero)
                 ev.clipsToBounds = true
-                ev.layer.cornerRadius = 22.0
-                ev.layer.cornerCurve = .continuous
-                ev.layer.maskedCorners = allCorners
                 self.effectView = ev
             }
-            let targetBelow = self.nitroTintView ?? self.bannerImageView ?? anchor
-            if ev.superview !== node.view {
-                node.view.insertSubview(ev, aboveSubview: targetBelow)
+            if ev.superview !== anchor {
+                anchor.addSubview(ev)
             }
+            anchor.bringSubviewToFront(ev)
             ev.isHidden = shouldHideBanner
             if !shouldHideBanner {
-                ev.frame = cardRect
+                ev.frame = bannerRect
             }
             ev.configure(effectId: effectId)
         } else {
@@ -2493,6 +2482,17 @@ private final class GGDiscordHeaderOverlay {
 
 enum GGMediaTokDiscordProfile {
     static func register() {
+        GGPeerInfoHooks.hasHeaderBackground.register({ peerId in
+            guard let profile = GGDiscordProfileStore.shared.profile(for: peerId) else {
+                return false
+            }
+            if GGDiscordProfileStore.shared.bannerFileURL(for: profile) != nil {
+                return true
+            }
+            let nitroId = profile.nitroThemeId
+            return !nitroId.isEmpty && nitroId != "none"
+        })
+
         GGPeerInfoHooks.headerDidLayout.register({ header in
             GGDiscordHeaderOverlay.update(header)
         }, order: 120)

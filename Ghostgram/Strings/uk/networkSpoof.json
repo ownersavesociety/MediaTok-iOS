@@ -21,6 +21,7 @@
   "networkSpoof.profiles.removeConfirm": "Видалити цю підміну?",
   "networkSpoof.profiles.title": "Підміна профілю",
   "networkSpoof.profiles.unknownPeer": "Невідомий чат",
+  "networkSpoof.visual.alsoPhonesPlaceholder": "Дод. номери (2-й, 3-й... через кому або з нового рядка)",
   "networkSpoof.visual.alsoUsernamesPlaceholder": "Також: @user2, @user3 (через пробіл/кому)",
   "networkSpoof.visual.avatarActive": "Свій 4K активний",
   "networkSpoof.visual.avatarHeader": "4K Аватар / Відео (до 3840px)",

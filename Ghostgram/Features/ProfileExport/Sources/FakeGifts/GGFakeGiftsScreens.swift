@@ -81,10 +81,14 @@ func ggMakeFakeGiftsListScreen(context: AccountContext) -> ViewController {
     |> map { records, _ -> GGPEScreenModel in
         var model = GGPEScreenModel(title: GGStrings.FakeGifts.List.title)
         model.sections.append([
-            GGPERow(id: "addByLink", kind: .action(title: "Добавить NFT-подарок по ссылке (t.me/nft/...)", destructive: false, enabled: true))
+            GGPERow(id: "addByLink", kind: .action(title: "Добавить NFT-подарок по ссылке (t.me/nft/...)", destructive: false, enabled: true)),
+            GGPERow(id: "addGeneric", kind: .action(title: "Добавить обычный подарок (с любой подписью)", destructive: false, enabled: true))
         ])
         model.tap["addByLink"] = {
             ggPromptAddFakeUniqueGift(context: context, from: controllerRef)
+        }
+        model.tap["addGeneric"] = {
+            ggPresentGenericGiftPicker(context: context, from: controllerRef, targetPeerId: nil)
         }
         var rows: [GGPERow] = [GGPERow(id: "header", kind: .header(GGStrings.FakeGifts.List.header))]
         if records.isEmpty {
@@ -183,6 +187,75 @@ func ggPromptAddFakeUniqueGift(context: AccountContext, from controller: ViewCon
             })
         }
     ), in: .window(.root))
+}
+
+/// Lists Telegram's regular (generic) gifts from the catalog so the user can add any of them locally
+/// (to self or another peer) and immediately customize the sender and caption.
+func ggPresentGenericGiftPicker(context: AccountContext, from controller: ViewController?, targetPeerId: PeerId?) {
+    let _ = context.engine.payments.keepStarGiftsUpdated().start()
+    weak var pickerRef: ItemListController?
+    let navigationController = (controller?.navigationController as? NavigationController) ?? ggProfileExportTopController(context: context)?.0
+
+    let model = combineLatest(queue: .mainQueue(), context.engine.payments.cachedStarGifts(), GGLocalization.shared.languageCodeSignal)
+    |> map { catalog, _ -> GGPEScreenModel in
+        var model = GGPEScreenModel(title: targetPeerId == nil ? "Выбрать обычный подарок" : "Подарить обычный подарок")
+        var rows: [GGPERow] = [GGPERow(id: "header", kind: .header("Каталог обычных подарков"))]
+        let genericGifts: [(StarGift, StarGift.Gift)] = (catalog ?? []).compactMap { gift in
+            if case let .generic(generic) = gift {
+                return (gift, generic)
+            }
+            return nil
+        }
+        if genericGifts.isEmpty {
+            rows.append(GGPERow(id: "loading", kind: .info("Загружаем каталог подарков Telegram… Попробуйте открыть через пару секунд.")))
+        } else {
+            for (gift, generic) in genericGifts {
+                let rowId = "generic.\(generic.id)"
+                let baseTitle = (generic.title.flatMap { $0.isEmpty ? nil : $0 }) ?? "Подарок #\(generic.id)"
+                let limitTag = generic.availability != nil ? " · Лимит" : ""
+                let label = "\(generic.price) ⭐️\(limitTag)"
+                rows.append(GGPERow(id: rowId, kind: .disclosure(title: baseTitle, label: label, icon: nil, enabled: true)))
+                model.tap[rowId] = {
+                    GGFakeGiftsSettings.isEnabled.set(true)
+                    GGFakeGiftsStore.shared.ensureAccount(context.account)
+                    let accountPeerId = context.account.peerId
+                    let date = Int32(Date().timeIntervalSince1970)
+                    GGFakeGiftsStore.shared.add(
+                        accountPeerId: accountPeerId,
+                        gift: gift,
+                        fromPeer: targetPeerId == nil ? nil : accountPeerId,
+                        nameHidden: false,
+                        date: date,
+                        text: nil,
+                        entities: nil,
+                        number: nil,
+                        targetPeer: targetPeerId,
+                        completion: { localId in
+                            guard let localId else {
+                                return
+                            }
+                            let editor = ggMakeFakeGiftEditor(context: context, localId: localId)
+                            if let nav = pickerRef?.navigationController as? NavigationController {
+                                nav.replaceTopController(editor, animated: true)
+                            } else {
+                                navigationController?.pushViewController(editor)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+        model.sections.append(rows)
+        return model
+    }
+
+    let picker = ggPEMakeListController(context: context, model: model)
+    pickerRef = picker
+    if let controller {
+        controller.push(picker)
+    } else {
+        navigationController?.pushViewController(picker)
+    }
 }
 
 /// The editor works on a draft; "Done" writes it once.

@@ -9771,6 +9771,11 @@ public enum GGStrings {
         }
 
         public enum Visual {
+            /// Extra phones (2nd, 3rd... comma or new line)
+            public static var alsoPhonesPlaceholder: Swift.String {
+                return GGLocalization.shared.string("networkSpoof.visual.alsoPhonesPlaceholder")
+            }
+
             /// Also @user2, @user3 (comma or space)
             public static var alsoUsernamesPlaceholder: Swift.String {
                 return GGLocalization.shared.string("networkSpoof.visual.alsoUsernamesPlaceholder")
@@ -9957,7 +9962,7 @@ public enum GGStrings {
                 return GGLocalization.shared.string("nickBadge.menu.show")
             }
 
-            /// MediaTok badges next to names: in chats, the chat list, contacts and profiles. The badge list is downloaded from badges.gconnect.cc — no data about you is sent
+            /// MediaTok badges next to names: in chats, the chat list, contacts and profiles. No personal data is sent
             public static var showInfo: Swift.String {
                 return GGLocalization.shared.string("nickBadge.menu.showInfo")
             }

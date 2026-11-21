@@ -6,6 +6,7 @@ import AsyncDisplayKit
 import TelegramCore
 import SwiftSignalKit
 import AccountContext
+import GGCore
 import TelegramPresentationData
 import PresentationDataUtils
 import ComponentFlow
@@ -2273,7 +2274,7 @@ private final class GiftViewSheetContent: CombinedComponent {
                     })))
                 }
                 
-                if arguments.transferStars != nil || self.isMyWalletGift(gift) {
+                if !ggGiftViewIsLocalGift(context: self.context, subject: self.subject), arguments.transferStars != nil || self.isMyWalletGift(gift) {
                     if case let .channel(channel) = peer, !channel.flags.contains(.isCreator) {
                         
                     } else {
@@ -3239,6 +3240,7 @@ private final class GiftViewSheetContent: CombinedComponent {
             var isSelfGift = false
             var isChannelGift = false
             var isMyOwnedUniqueGift = false
+            var isMyLocalUniqueGift = false
             var isMyHostedUniqueGift = false
             var isMyWalletGift = false
             var releasedByPeer: EnginePeer?
@@ -3318,8 +3320,12 @@ private final class GiftViewSheetContent: CombinedComponent {
                 nameHidden = arguments.nameHidden
                 canGiftUpgrade = arguments.prepaidUpgradeHash != nil
                 
-                if case let .peerId(peerId) = uniqueGift?.owner, peerId == component.context.account.peerId, !ggGiftViewIsLocalGift(context: component.context, subject: subject) { // GHOST: a local-only (fake) gift gets no transfer / wear / sell (GGGiftViewHooks.isLocalGift)
-                    isMyOwnedUniqueGift = true
+                if case let .peerId(peerId) = uniqueGift?.owner, peerId == component.context.account.peerId {
+                    if ggGiftViewIsLocalGift(context: component.context, subject: subject) {
+                        isMyLocalUniqueGift = true
+                    } else {
+                        isMyOwnedUniqueGift = true
+                    }
                 }
                 
                 if let number = arguments.giftNumber, let title = genericGift?.title {
@@ -3459,7 +3465,7 @@ private final class GiftViewSheetContent: CombinedComponent {
             }
                                     
             var originY: CGFloat = 0.0
-            let displaysHeaderButtons = isMyOwnedUniqueGift || isMyHostedUniqueGift || isMyWalletGift || isChannelGift
+            let displaysHeaderButtons = isMyOwnedUniqueGift || isMyLocalUniqueGift || isMyHostedUniqueGift || isMyWalletGift || isChannelGift
             let headerButtonHeight: CGFloat = 58.0
             let headerButtonsBottomInset: CGFloat = 16.0
                         
@@ -4622,6 +4628,9 @@ private final class GiftViewSheetContent: CombinedComponent {
                 var tableItems: [TableComponent.Item] = []
                 
                 var isWearing = state.pendingWear
+                if !isWearing, !state.pendingTakeOff, isMyLocalUniqueGift, let uniqueGift {
+                    isWearing = GGVisualProfileStore.shared.wornStarGift(for: component.context.account.peerId.ggKey)?.id == uniqueGift.id
+                }
                 if !isWearing, !state.pendingTakeOff, isChannelGift, let uniqueGift, let emojiStatus = state.peerMap[wearOwnerPeerId]?.emojiStatus, case let .starGift(id, _, _, _, _, _, _, _, _) = emojiStatus.content, id == uniqueGift.id {
                     isWearing = true
                 }
@@ -4856,8 +4865,8 @@ private final class GiftViewSheetContent: CombinedComponent {
                 
                 if let uniqueGift {
                     if displaysHeaderButtons {
-                        var canTransfer = true
-                        var canResell = true
+                        var canTransfer = !isMyLocalUniqueGift
+                        var canResell = !isMyLocalUniqueGift
                         
                         if case let .peerId(peerId) = uniqueGift.owner, let peer = state.peerMap[peerId], case let .channel(channel) = peer {
                             if !channel.flags.contains(.isCreator) {
@@ -4919,7 +4928,58 @@ private final class GiftViewSheetContent: CombinedComponent {
                                 iconName: isWearing ? "Premium/Collectible/Unwear" : "Premium/Collectible/Wear",
                                 action: { [weak state] in
                                     if let state {
-                                        if isWearing {
+                                        if isMyLocalUniqueGift {
+                                            if let controller = controller() as? GiftViewScreen {
+                                                controller.dismissAllTooltips()
+                                            }
+                                            if isWearing {
+                                                GGVisualProfileStore.shared.setWornStarGift(nil, for: component.context.account.peerId.ggKey)
+                                                state.pendingTakeOff = true
+                                                state.pendingWear = false
+                                                state.updated(transition: .spring(duration: 0.4))
+                                                state.showAttributeInfo(tag: state.statusTag, text: strings.Gift_View_TookOff("\(uniqueGift.title) #\(formatCollectibleNumber(uniqueGift.number, dateTimeFormat: environment.dateTimeFormat))").string)
+                                            } else {
+                                                var modelFileId: Int64 = 0
+                                                var patternFileId: Int64 = 0
+                                                var innerColor: Int32 = 0
+                                                var outerColor: Int32 = 0
+                                                var patternColor: Int32 = 0
+                                                var textColor: Int32 = -1
+                                                for attribute in uniqueGift.attributes {
+                                                    switch attribute {
+                                                    case let .model(_, file, _, _):
+                                                        modelFileId = file.fileId.id
+                                                    case let .pattern(_, file, _):
+                                                        patternFileId = file.fileId.id
+                                                    case let .backdrop(_, _, inner, outer, pattern, text, _):
+                                                        innerColor = inner
+                                                        outerColor = outer
+                                                        patternColor = pattern
+                                                        textColor = text
+                                                    default:
+                                                        break
+                                                    }
+                                                }
+                                                GGVisualProfileStore.shared.setWornStarGift(
+                                                    GGWornStarGift(
+                                                        id: uniqueGift.id,
+                                                        fileId: modelFileId,
+                                                        title: uniqueGift.title,
+                                                        slug: uniqueGift.slug,
+                                                        patternFileId: patternFileId,
+                                                        innerColor: innerColor,
+                                                        outerColor: outerColor,
+                                                        patternColor: patternColor,
+                                                        textColor: textColor
+                                                    ),
+                                                    for: component.context.account.peerId.ggKey
+                                                )
+                                                state.pendingWear = true
+                                                state.pendingTakeOff = false
+                                                state.updated(transition: .spring(duration: 0.4))
+                                                state.showAttributeInfo(tag: state.statusTag, text: strings.Gift_View_PutOn("\(uniqueGift.title) #\(formatCollectibleNumber(uniqueGift.number, dateTimeFormat: environment.dateTimeFormat))").string)
+                                            }
+                                        } else if isWearing {
                                             state.commitTakeOff()
                                             
                                             state.showAttributeInfo(tag: state.statusTag, text: strings.Gift_View_TookOff("\(uniqueGift.title) #\(formatCollectibleNumber(uniqueGift.number, dateTimeFormat: environment.dateTimeFormat))").string)

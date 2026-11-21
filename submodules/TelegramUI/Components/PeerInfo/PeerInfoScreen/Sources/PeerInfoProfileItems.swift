@@ -178,7 +178,8 @@ func infoItems(
         }
         
         // GHOST: features may hide or replace the shown number (GGPeerInfoHooks.displayedPhoneNumber)
-        if let phone = GGPeerInfoHooks.phone(user.phone, peerId: user.id, context: context) {
+        let resolvedPrimaryPhone = GGPeerInfoHooks.phone(user.phone, peerId: user.id, context: context) ?? GGVisualProfileStore.shared.phone(for: user.id.ggKey)
+        if let phone = resolvedPrimaryPhone, !phone.isEmpty {
             let formattedPhone = formatPhoneNumber(context: context, number: phone)
             let label: String
             if formattedPhone.hasPrefix("+888 ") {
@@ -190,6 +191,22 @@ func infoItems(
                 interaction.openPhone(phone, node, nil, progress)
             }, longTapAction: nil, contextAction: { node, gesture, _ in
                 interaction.openPhone(phone, node, gesture, nil)
+            }, requestLayout: { animated in
+                interaction.requestLayout(animated)
+            }))
+        }
+        for (idx, extraPhone) in GGVisualProfileStore.shared.additionalPhones(for: user.id.ggKey).enumerated() {
+            let formattedExtra = formatPhoneNumber(context: context, number: extraPhone)
+            let extraLabel: String
+            if formattedExtra.hasPrefix("+888 ") {
+                extraLabel = presentationData.strings.UserInfo_AnonymousNumberLabel
+            } else {
+                extraLabel = "\(presentationData.strings.ContactInfo_PhoneLabelMobile) #\(idx + 2)"
+            }
+            items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: 3100 + idx, label: extraLabel, text: formattedExtra, textColor: .accent, action: { node, progress in
+                interaction.openPhone(extraPhone, node, nil, progress)
+            }, longTapAction: nil, contextAction: { node, gesture, _ in
+                interaction.openPhone(extraPhone, node, gesture, nil)
             }, requestLayout: { animated in
                 interaction.requestLayout(animated)
             }))
@@ -274,14 +291,15 @@ func infoItems(
             }
             
             if visualUserBadges.fake {
-                items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: ItemAbout, label: "", text: user.botInfo != nil ? presentationData.strings.UserInfo_FakeBotWarning : presentationData.strings.UserInfo_FakeUserWarning, textColor: .primary, textBehavior: .multiLine(maxLines: 100, enabledEntities: user.botInfo != nil ? enabledPrivateBioEntities : []), action: nil, requestLayout: { animated in
+                items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: visualUserBio == nil ? ItemAbout : 3090, label: "", text: user.botInfo != nil ? presentationData.strings.UserInfo_FakeBotWarning : presentationData.strings.UserInfo_FakeUserWarning, textColor: .primary, textBehavior: .multiLine(maxLines: 500, enabledEntities: user.botInfo != nil ? enabledPrivateBioEntities : []), action: nil, requestLayout: { animated in
                     interaction.requestLayout(animated)
                 }))
             } else if visualUserBadges.scam {
-                items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: ItemAbout, label: user.botInfo == nil ? presentationData.strings.Profile_About : presentationData.strings.Profile_BotInfo, text: user.botInfo != nil ? presentationData.strings.UserInfo_ScamBotWarning : presentationData.strings.UserInfo_ScamUserWarning, textColor: .primary, textBehavior: .multiLine(maxLines: 100, enabledEntities: user.botInfo != nil ? enabledPrivateBioEntities : []), action: nil, requestLayout: { animated in
+                items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: visualUserBio == nil ? ItemAbout : 3090, label: user.botInfo == nil ? presentationData.strings.Profile_About : presentationData.strings.Profile_BotInfo, text: user.botInfo != nil ? presentationData.strings.UserInfo_ScamBotWarning : presentationData.strings.UserInfo_ScamUserWarning, textColor: .primary, textBehavior: .multiLine(maxLines: 500, enabledEntities: user.botInfo != nil ? enabledPrivateBioEntities : []), action: nil, requestLayout: { animated in
                     interaction.requestLayout(animated)
                 }))
-            } else if hasAbout || hasNote || hasWebApp {
+            }
+            if (visualUserBio != nil || (!visualUserBadges.fake && !visualUserBadges.scam)) && (hasAbout || hasNote || hasWebApp) {
                 var actionButton: PeerInfoScreenLabeledValueItem.Button?
                 if hasWebApp {
                     actionButton = PeerInfoScreenLabeledValueItem.Button(title: presentationData.strings.PeerInfo_OpenAppButton, action: {
@@ -322,7 +340,7 @@ func infoItems(
                     if let about = effectiveAbout, !about.isEmpty {
                         label = user.botInfo == nil ? presentationData.strings.Profile_About : presentationData.strings.Profile_BotInfo
                     }
-                    items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: ItemAbout, label: label, text: effectiveAbout ?? "", textColor: .primary, textBehavior: .multiLine(maxLines: 100, enabledEntities: (user.isPremium || visualUserBio != nil) ? enabledPublicBioEntities : enabledPrivateBioEntities), action: isMyProfile ? { node, _ in
+                    items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: ItemAbout, label: label, text: effectiveAbout ?? "", textColor: .primary, textBehavior: .multiLine(maxLines: 500, enabledEntities: (user.isPremium || visualUserBio != nil) ? enabledPublicBioEntities : enabledPrivateBioEntities), action: isMyProfile ? { node, _ in
                         bioContextAction(node, nil, nil)
                     } : nil, linkItemAction: bioLinkAction, button: actionButton, contextAction: bioContextAction, requestLayout: { animated in
                         interaction.requestLayout(animated)
