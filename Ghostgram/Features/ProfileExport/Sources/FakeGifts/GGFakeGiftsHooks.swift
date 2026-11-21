@@ -26,14 +26,25 @@ enum GGFakeGiftsHooks {
         })
 
         GGGiftHooks.profileGifts.register({ state, query in
-            guard GGFakeGiftsSettings.isEnabled.value, query.collectionId == nil else {
+            guard query.collectionId == nil else {
                 return
             }
-            let fakes = GGFakeGiftsStore.shared.resolvedGifts(accountPeerId: query.account.peerId, forPeer: query.peerId)
+            if query.peerId != query.account.peerId {
+                GGFakeGiftsStore.shared.checkGlobalGifts(account: query.account, forPeer: query.peerId)
+            }
+            var fakes: [ProfileGiftsContext.State.StarGift] = []
+            if GGFakeGiftsSettings.isEnabled.value {
+                fakes.append(contentsOf: GGFakeGiftsStore.shared.resolvedGifts(accountPeerId: query.account.peerId, forPeer: query.peerId))
+                if !fakes.isEmpty {
+                    GGFakeGiftsStore.shared.refreshIfNeeded(account: query.account)
+                }
+            }
+            if query.peerId != query.account.peerId {
+                fakes.append(contentsOf: GGFakeGiftsStore.shared.remoteGifts(forPeer: query.peerId))
+            }
             if fakes.isEmpty {
                 return
             }
-            GGFakeGiftsStore.shared.refreshIfNeeded(account: query.account)
             ggInsertFakeGifts(&state, fakes: fakes)
         })
 
@@ -52,7 +63,7 @@ enum GGFakeGiftsHooks {
 
         // A fake takes no slot of the server's pin limit and never reaches the server's pinned list.
         GGGiftHooks.isLocalGift.register({ reference, account in
-            return GGFakeGiftsSettings.isEnabled.value && GGFakeGiftsStore.localId(of: reference, accountPeerId: account.peerId) != nil
+            return GGFakeGiftsStore.localId(of: reference, accountPeerId: account.peerId) != nil
         })
 
         GGGiftViewHooks.menuItems.register({ menuContext in
@@ -74,6 +85,7 @@ enum GGFakeGiftsHooks {
             guard peer.id != context.account.peerId, peer.id.namespace == Namespaces.Peer.CloudUser else {
                 return []
             }
+            GGFakeGiftsStore.shared.checkGlobalGifts(account: context.account, forPeer: peer.id)
             let targetPeerId = peer.id
             weak let controller = info.controller
             return [

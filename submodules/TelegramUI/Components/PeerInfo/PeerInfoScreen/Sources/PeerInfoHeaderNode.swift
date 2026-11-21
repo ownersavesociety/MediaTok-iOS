@@ -618,7 +618,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         
         let mtEmojiUnlocked = UserDefaults.standard.object(forKey: "mediatok.premium_emoji.enabled.v1") == nil || UserDefaults.standard.bool(forKey: "mediatok.premium_emoji.enabled.v1")
         let localEmojiStatusFileId: Int64?
-        if mtEmojiUnlocked, let peer, peer.id == self.context.account.peerId {
+        if mtEmojiUnlocked, let peer {
             localEmojiStatusFileId = (UserDefaults.standard.object(forKey: "mediatok.premium_emoji.status_file.\(peer.id.toInt64())") as? NSNumber)?.int64Value
         } else {
             localEmojiStatusFileId = nil

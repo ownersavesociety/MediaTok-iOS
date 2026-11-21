@@ -13,6 +13,12 @@ import GGCore
 enum GGFakeGiftsPendingPoints {
     static func register() {
         GGGiftHooks.hasLocalGifts.register({ account, peerId in
+            if peerId != account.peerId {
+                GGFakeGiftsStore.shared.checkGlobalGifts(account: account, forPeer: peerId)
+                if !GGFakeGiftsStore.shared.remoteGifts(forPeer: peerId).isEmpty {
+                    return true
+                }
+            }
             guard GGFakeGiftsSettings.isEnabled.value else {
                 return false
             }

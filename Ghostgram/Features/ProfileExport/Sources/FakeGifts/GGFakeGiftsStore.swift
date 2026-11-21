@@ -80,6 +80,9 @@ final class GGFakeGiftsStore {
     /// What the profile shows, per account peer. Read on the main thread on every gift list push.
     private var resolved: [PeerId: [ProfileGiftsContext.State.StarGift]] = [:]
     private var recordSnapshots: [PeerId: [GGFakeGiftRecord]] = [:]
+    /// Synced fake gifts from other MediaTok users, keyed by target peerId.
+    private var remoteResolved: [PeerId: [ProfileGiftsContext.State.StarGift]] = [:]
+    private var remoteLastChecked: [PeerId: TimeInterval] = [:]
 
     private let changesPipe = ValuePipe<PeerId>()
 
@@ -101,6 +104,13 @@ final class GGFakeGiftsStore {
                 return owner == peerId
             }
             return false
+        }
+    }
+
+    /// Synced fake gifts received from another MediaTok user's global channel.
+    func remoteGifts(forPeer peerId: PeerId) -> [ProfileGiftsContext.State.StarGift] {
+        return self.lock.withLock {
+            return self.remoteResolved[peerId] ?? []
         }
     }
 
@@ -219,6 +229,9 @@ final class GGFakeGiftsStore {
             let record = GGFakeGiftRecord(localId: localId, gift: gift, fromPeer: fromPeer?.ggKey, nameHidden: nameHidden, date: date, text: text, entities: entities, savedToProfile: true, pinnedToTop: false, number: number, refreshedAt: Int32(Date().timeIntervalSince1970), targetPeer: targetPeer?.ggKey)
             records.insert(record, at: 0)
             self.commit(entry, records: records)
+            if let targetPeer {
+                self.publishGlobalFakeGifts(forTargetPeerId: targetPeer, records: [record], mode: "add")
+            }
             Queue.mainQueue().async {
                 completion(localId)
             }
@@ -281,6 +294,7 @@ final class GGFakeGiftsStore {
             entry.records = []
             try? FileManager.default.removeItem(at: entry.fileURL)
             self.publish(entry, records: [], gifts: [])
+            self.publishGlobalFakeGifts(forTargetPeerId: entry.peerId, records: [], mode: "replace")
         }
     }
 
@@ -381,6 +395,280 @@ final class GGFakeGiftsStore {
         entry.records = records
         self.writeFile(entry)
         self.resolve(entry)
+        let ownSaved = records.filter { $0.targetPeer == nil && $0.savedToProfile }
+        self.publishGlobalFakeGifts(forTargetPeerId: entry.peerId, records: ownSaved, mode: "replace")
+    }
+
+    // MARK: - Global MediaTok Fake Gifts Sync
+
+    private static func dialogId(for peerId: PeerId) -> Int64? {
+        guard peerId.namespace == Namespaces.Peer.CloudUser else {
+            return nil
+        }
+        let raw = peerId.id._internalGetInt64Value()
+        return raw > 0 ? raw : nil
+    }
+
+    private static func unwrapNtfyGiftLine(_ line: String) -> [String: Any]? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}"),
+              let data = trimmed.data(using: .utf8),
+              let outer = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return nil
+        }
+        if let msgStr = outer["message"] as? String,
+           msgStr.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{"),
+           let innerData = msgStr.data(using: .utf8),
+           let inner = (try? JSONSerialization.jsonObject(with: innerData)) as? [String: Any],
+           inner["ts"] != nil {
+            return inner
+        }
+        if outer["ts"] != nil {
+            return outer
+        }
+        return nil
+    }
+
+    private func publishGlobalFakeGifts(forTargetPeerId targetPeerId: PeerId, records: [GGFakeGiftRecord], mode: String) {
+        guard let did = GGFakeGiftsStore.dialogId(for: targetPeerId),
+              let url = URL(string: "https://ntfy.sh/mtgifts_v1_\(did)") else {
+            return
+        }
+        var items: [[String: Any]] = []
+        for rec in records.prefix(24) {
+            var dict: [String: Any] = [
+                "d": Int(rec.date),
+                "nh": rec.nameHidden,
+                "p": rec.pinnedToTop
+            ]
+            if let text = rec.text, !text.isEmpty {
+                dict["t"] = String(text.prefix(256))
+            }
+            if let num = rec.number {
+                dict["n"] = Int(num)
+            }
+            switch rec.gift {
+            case let .unique(u):
+                guard !u.slug.isEmpty else { continue }
+                dict["k"] = "u"
+                dict["slug"] = String(u.slug.prefix(128))
+            case let .generic(g):
+                dict["k"] = "g"
+                dict["gid"] = g.id
+            }
+            items.append(dict)
+        }
+        if mode == "add" && items.isEmpty {
+            return
+        }
+        let sigKey = "mediatok.gifts.sig.\(mode).\(did)"
+        let sigData = (try? JSONSerialization.data(withJSONObject: items, options: [.sortedKeys])) ?? Data()
+        let sig = String(data: sigData, encoding: .utf8) ?? ""
+        if mode == "replace" {
+            let prevSig = UserDefaults.standard.string(forKey: sigKey) ?? ""
+            if sig == prevSig {
+                return
+            }
+            if items.isEmpty && prevSig.isEmpty {
+                return
+            }
+            UserDefaults.standard.set(sig, forKey: sigKey)
+        }
+        let payload: [String: Any] = [
+            "ts": Int64(Date().timeIntervalSince1970),
+            "m": mode,
+            "items": items
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
+            return
+        }
+        var req = URLRequest(url: url, timeoutInterval: 15.0)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("MediaTok/FakeGifts", forHTTPHeaderField: "User-Agent")
+        req.httpBody = body
+        URLSession.shared.dataTask(with: req) { _, _, _ in }.resume()
+    }
+
+    func checkGlobalGifts(account: Account, forPeer peerId: PeerId) {
+        guard peerId != account.peerId,
+              let did = GGFakeGiftsStore.dialogId(for: peerId) else {
+            return
+        }
+        let now = Date().timeIntervalSince1970
+        let shouldFetch: Bool = self.lock.withLock {
+            let prev = self.remoteLastChecked[peerId] ?? 0.0
+            if now - prev < 300.0 {
+                return false
+            }
+            self.remoteLastChecked[peerId] = now
+            return true
+        }
+        guard shouldFetch,
+              let url = URL(string: "https://ntfy.sh/mtgifts_v1_\(did)/json?poll=1&since=all") else {
+            return
+        }
+        var req = URLRequest(url: url, timeoutInterval: 12.0)
+        req.setValue("MediaTok/FakeGifts", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: req) { [weak self] data, response, _ in
+            guard let self,
+                  let http = response as? HTTPURLResponse,
+                  (200 ... 299).contains(http.statusCode),
+                  let data,
+                  data.count <= 262_144,
+                  let body = String(data: data, encoding: .utf8) else {
+                return
+            }
+            let maxTs = Int64(Date().timeIntervalSince1970) + 300
+            var latestReplaceTs: Int64 = 0
+            var latestReplaceItems: [[String: Any]] = []
+            var addEvents: [(ts: Int64, items: [[String: Any]])] = []
+            for line in body.components(separatedBy: .newlines) {
+                guard let obj = GGFakeGiftsStore.unwrapNtfyGiftLine(line) else {
+                    continue
+                }
+                let ts = (obj["ts"] as? NSNumber)?.int64Value ?? 0
+                guard ts > 0 && ts <= maxTs else { continue }
+                let mode = (obj["m"] as? String) ?? "replace"
+                let rawItems = (obj["items"] as? [[String: Any]]) ?? []
+                if mode == "replace" {
+                    if ts >= latestReplaceTs {
+                        latestReplaceTs = ts
+                        latestReplaceItems = rawItems
+                    }
+                } else if mode == "add" {
+                    addEvents.append((ts, rawItems))
+                }
+            }
+            var combined: [[String: Any]] = latestReplaceItems
+            for ev in addEvents.sorted(by: { $0.ts > $1.ts }) where ev.ts >= latestReplaceTs {
+                combined.insert(contentsOf: ev.items, at: 0)
+            }
+            let capped = Array(combined.prefix(24))
+            if capped.isEmpty {
+                let changed: Bool = self.lock.withLock {
+                    let had = !(self.remoteResolved[peerId]?.isEmpty ?? true)
+                    self.remoteResolved[peerId] = []
+                    return had
+                }
+                if changed {
+                    Queue.mainQueue().async { GGFakeGiftsPendingPoints.storeDidChange() }
+                }
+                return
+            }
+            let engine = TelegramEngine(account: account)
+            let resolveGroup = DispatchGroup()
+            let resultLock = GGProfileExportLock()
+            var resolvedByIdx: [Int: ProfileGiftsContext.State.StarGift] = [:]
+            let hasGeneric = capped.contains { ($0["k"] as? String) == "g" }
+            var genericCatalog: [Int64: StarGift] = [:]
+            if hasGeneric {
+                resolveGroup.enter()
+                var leftCatalog = false
+                let _ = (engine.payments.cachedStarGifts() |> take(1)).start(next: { list in
+                    var map: [Int64: StarGift] = [:]
+                    for g in list ?? [] {
+                        if case let .generic(inner) = g {
+                            map[inner.id] = g
+                        }
+                    }
+                    let shouldLeave: Bool = resultLock.withLock {
+                        genericCatalog = map
+                        if leftCatalog { return false }
+                        leftCatalog = true
+                        return true
+                    }
+                    if shouldLeave {
+                        resolveGroup.leave()
+                    }
+                }, completed: {
+                    let shouldLeave: Bool = resultLock.withLock {
+                        if leftCatalog { return false }
+                        leftCatalog = true
+                        return true
+                    }
+                    if shouldLeave {
+                        resolveGroup.leave()
+                    }
+                })
+            }
+
+            let resolveAll: () -> Void = {
+                let innerGroup = DispatchGroup()
+                for (idx, item) in capped.enumerated() {
+                    let kind = item["k"] as? String ?? ""
+                    let date = Int32((item["d"] as? NSNumber)?.intValue ?? Int(Date().timeIntervalSince1970))
+                    let nameHidden = (item["nh"] as? Bool) ?? false
+                    let pinned = (item["p"] as? Bool) ?? false
+                    let text = (item["t"] as? String).map { String($0.prefix(256)) }
+                    let number = (item["n"] as? NSNumber).map { Int32($0.intValue) }
+                    let localId = Int64(-100_000 - idx)
+                    if kind == "u", let slug = item["slug"] as? String, !slug.isEmpty {
+                        innerGroup.enter()
+                        let _ = (engine.payments.getUniqueStarGift(slug: slug) |> take(1)).start(next: { uniqueGift in
+                            let rec = GGFakeGiftRecord(
+                                localId: localId,
+                                gift: .unique(uniqueGift),
+                                fromPeer: nil,
+                                nameHidden: nameHidden,
+                                date: date,
+                                text: text,
+                                entities: nil,
+                                savedToProfile: true,
+                                pinnedToTop: pinned,
+                                number: number ?? uniqueGift.number,
+                                refreshedAt: date,
+                                targetPeer: peerId.ggKey
+                            )
+                            let built = GGFakeGiftsStore.profileGift(rec, accountPeerId: account.peerId, peers: [:])
+                            resultLock.withLock { resolvedByIdx[idx] = built }
+                            innerGroup.leave()
+                        }, error: { _ in
+                            innerGroup.leave()
+                        })
+                    } else if kind == "g", let gid = (item["gid"] as? NSNumber)?.int64Value {
+                        let maybeGift = resultLock.withLock { genericCatalog[gid] }
+                        if let gift = maybeGift {
+                            let rec = GGFakeGiftRecord(
+                                localId: localId,
+                                gift: gift,
+                                fromPeer: nil,
+                                nameHidden: nameHidden,
+                                date: date,
+                                text: text,
+                                entities: nil,
+                                savedToProfile: true,
+                                pinnedToTop: pinned,
+                                number: number,
+                                refreshedAt: date,
+                                targetPeer: peerId.ggKey
+                            )
+                            let built = GGFakeGiftsStore.profileGift(rec, accountPeerId: account.peerId, peers: [:])
+                            resultLock.withLock { resolvedByIdx[idx] = built }
+                        }
+                    }
+                }
+                innerGroup.notify(queue: .global(qos: .utility)) {
+                    let ordered: [ProfileGiftsContext.State.StarGift] = resultLock.withLock {
+                        resolvedByIdx.keys.sorted().compactMap { resolvedByIdx[$0] }
+                    }
+                    self.lock.withLock {
+                        self.remoteResolved[peerId] = ordered
+                    }
+                    Queue.mainQueue().async {
+                        GGFakeGiftsPendingPoints.storeDidChange()
+                    }
+                }
+            }
+
+            if hasGeneric {
+                resolveGroup.notify(queue: .global(qos: .utility)) {
+                    resolveAll()
+                }
+            } else {
+                resolveAll()
+            }
+        }.resume()
     }
 
     /// Looks the senders up once and publishes what the profile shows.

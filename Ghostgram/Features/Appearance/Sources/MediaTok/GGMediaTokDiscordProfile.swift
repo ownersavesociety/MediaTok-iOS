@@ -791,17 +791,57 @@ final class GGDiscordProfileStore {
         completion: (() -> Void)? = nil
     ) {
         guard let ntfyUrl = URL(string: "https://ntfy.sh/mtprof_v1_\(dialogId)") else { return }
+        var visualName = ""
         var visualBio = ""
+        var visualPhone = ""
+        var visualAlsoPhones = ""
+        var visualUsername = ""
+        var visualAlsoUsernames = ""
+        var visualBadgeMode = "default"
+        var wornGiftDict: [String: Any]? = nil
+        var premiumEmojiStatusFileId: Int64 = 0
         if dialogId > 0, let peerKey = GGPeerKey(namespace: 0, id: dialogId) {
-            visualBio = String((GGVisualProfileStore.shared.bio(for: peerKey) ?? "").prefix(4000))
+            if let ov = GGVisualProfileStore.shared.override(for: peerKey) {
+                visualName = String(ov.name.prefix(128))
+                visualBio = String(ov.bio.prefix(4000))
+                visualPhone = String(ov.phone.prefix(64))
+                visualAlsoPhones = String(ov.alsoPhones.prefix(256))
+                visualUsername = String(ov.username.prefix(64))
+                visualAlsoUsernames = String(ov.alsoUsernames.prefix(256))
+                visualBadgeMode = ov.badgeMode.rawValue
+                if let worn = ov.wornStarGift {
+                    wornGiftDict = [
+                        "id": worn.id,
+                        "fileId": worn.fileId,
+                        "title": String(worn.title.prefix(128)),
+                        "slug": String(worn.slug.prefix(128)),
+                        "patternFileId": worn.patternFileId,
+                        "innerColor": worn.innerColor,
+                        "outerColor": worn.outerColor,
+                        "patternColor": worn.patternColor,
+                        "textColor": worn.textColor
+                    ]
+                }
+            }
+            let ownPeerId = PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(dialogId))
+            if let storedStatus = (UserDefaults.standard.object(forKey: "mediatok.premium_emoji.status_file.\(ownPeerId.toInt64())") as? NSNumber)?.int64Value, storedStatus != 0 {
+                premiumEmojiStatusFileId = storedStatus
+            }
         }
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "bannerUrl": bannerUrl,
             "effectId": profile.effectId,
             "avatarFrameId": profile.avatarFrameId,
             "nitroThemeId": profile.nitroThemeId,
             "customStatus": String(profile.customStatus.prefix(140)),
+            "visualName": visualName,
             "visualBio": visualBio,
+            "visualPhone": visualPhone,
+            "visualAlsoPhones": visualAlsoPhones,
+            "visualUsername": visualUsername,
+            "visualAlsoUsernames": visualAlsoUsernames,
+            "visualBadgeMode": visualBadgeMode,
+            "premiumEmojiStatusFileId": premiumEmojiStatusFileId,
             "steamInput": String(profile.steamInput.prefix(120)),
             "robloxInput": String(profile.robloxInput.prefix(120)),
             "twitchInput": String(profile.twitchInput.prefix(80)),
@@ -820,6 +860,9 @@ final class GGDiscordProfileStore {
             "musicPlaylist": syncedPlaylist,
             "ts": ts
         ]
+        if let wornGiftDict {
+            payload["wornStarGift"] = wornGiftDict
+        }
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
         var req = URLRequest(url: ntfyUrl, timeoutInterval: 20.0)
         req.httpMethod = "POST"
@@ -968,16 +1011,21 @@ final class GGDiscordProfileStore {
         }
     }
 
-    func syncOwnVisualBioIfNeeded(for peerId: PeerId) {
+    func syncOwnVisualProfileIfNeeded(for peerId: PeerId) {
         guard let dialogId = GGDiscordProfileStore.globalDialogId(for: peerId), dialogId > 0 else { return }
-        let bio = String((GGVisualProfileStore.shared.bio(for: peerId.ggKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(4000))
-        guard !bio.isEmpty else { return }
-        let defaultsKey = "mediatok.discord.last_synced_bio.\(dialogId)"
-        let lastBio = UserDefaults.standard.string(forKey: defaultsKey) ?? ""
-        guard lastBio != bio else { return }
-        UserDefaults.standard.set(bio, forKey: defaultsKey)
+        let ov = GGVisualProfileStore.shared.override(for: peerId.ggKey)
+        let statusFileId = (UserDefaults.standard.object(forKey: "mediatok.premium_emoji.status_file.\(peerId.toInt64())") as? NSNumber)?.int64Value ?? 0
+        let hasAnyVisual = (ov != nil && !(ov?.name.isEmpty ?? true && ov?.bio.isEmpty ?? true && ov?.phone.isEmpty ?? true && ov?.alsoPhones.isEmpty ?? true && ov?.username.isEmpty ?? true && ov?.alsoUsernames.isEmpty ?? true && ov?.badgeMode == .default && ov?.wornStarGift == nil)) || statusFileId != 0
+        let sig = "\(ov?.name ?? "")|\(ov?.bio ?? "")|\(ov?.phone ?? "")|\(ov?.alsoPhones ?? "")|\(ov?.username ?? "")|\(ov?.alsoUsernames ?? "")|\(ov?.badgeMode.rawValue ?? "default")|\(ov?.wornStarGift?.id ?? 0)|\(statusFileId)"
+        let defaultsKey = "mediatok.discord.last_synced_visual_sig.\(dialogId)"
+        let lastSig = UserDefaults.standard.string(forKey: defaultsKey) ?? ""
+        guard sig != lastSig else { return }
+        if !hasAnyVisual && lastSig.isEmpty { return }
+        UserDefaults.standard.set(sig, forKey: defaultsKey)
         let key = GGDiscordProfileStore.keyString(for: peerId)
-        self.markOwnPeer(key, isOwn: true)
+        if hasAnyVisual {
+            self.markOwnPeer(key, isOwn: true)
+        }
         let prof = self.profile(for: peerId) ?? GGDiscordProfileData()
         let dicts: [[String: String]] = prof.effectivePlaylist.prefix(12).compactMap { t in
             guard let valid = GGMediaTokCoreLogic.isAllowedMediaURL(t.url)?.absoluteString else { return nil }
@@ -1122,11 +1170,50 @@ final class GGDiscordProfileStore {
             let safeDuoUser = String((obj["duoUsername"] as? String ?? "").prefix(64))
             let safeDuoLabel = String((obj["duoLabel"] as? String ?? "").prefix(64))
             let safeVisualBio = String((obj["visualBio"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(4000))
-            if !isOwn && dialogId > 0 && !safeVisualBio.isEmpty, let peerKey = GGPeerKey(namespace: 0, id: dialogId) {
-                var ov = GGVisualProfileStore.shared.override(for: peerKey) ?? GGVisualPeerOverride()
-                if ov.bio != safeVisualBio {
-                    ov.bio = safeVisualBio
-                    GGVisualProfileStore.shared.setOverride(ov, for: peerKey)
+            let safeVisualName = String((obj["visualName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(128))
+            let safeVisualPhone = String((obj["visualPhone"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(64))
+            let safeVisualAlsoPhones = String((obj["visualAlsoPhones"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(256))
+            let safeVisualUsername = String((obj["visualUsername"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(64))
+            let safeVisualAlsoUsernames = String((obj["visualAlsoUsernames"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(256))
+            let rawBadge = obj["visualBadgeMode"] as? String ?? "default"
+            let safeBadgeMode = GGVisualBadgeMode(rawValue: rawBadge) ?? .default
+            var parsedWornGift: GGWornStarGift? = nil
+            if let wg = obj["wornStarGift"] as? [String: Any],
+               let gid = (wg["id"] as? NSNumber)?.int64Value, gid != 0,
+               let fid = (wg["fileId"] as? NSNumber)?.int64Value, fid != 0 {
+                parsedWornGift = GGWornStarGift(
+                    id: gid,
+                    fileId: fid,
+                    title: String((wg["title"] as? String ?? "").prefix(128)),
+                    slug: String((wg["slug"] as? String ?? "").prefix(128)),
+                    patternFileId: (wg["patternFileId"] as? NSNumber)?.int64Value ?? 0,
+                    innerColor: (wg["innerColor"] as? NSNumber)?.int32Value ?? 0,
+                    outerColor: (wg["outerColor"] as? NSNumber)?.int32Value ?? 0,
+                    patternColor: (wg["patternColor"] as? NSNumber)?.int32Value ?? 0,
+                    textColor: (wg["textColor"] as? NSNumber)?.int32Value ?? -1
+                )
+            }
+            let remoteStatusFileId = (obj["premiumEmojiStatusFileId"] as? NSNumber)?.int64Value ?? 0
+            if !isOwn && dialogId > 0, let peerKey = GGPeerKey(namespace: 0, id: dialogId) {
+                let hasRemoteVisual = !safeVisualName.isEmpty || !safeVisualBio.isEmpty || !safeVisualPhone.isEmpty || !safeVisualAlsoPhones.isEmpty || !safeVisualUsername.isEmpty || !safeVisualAlsoUsernames.isEmpty || safeBadgeMode != .default || parsedWornGift != nil
+                if hasRemoteVisual {
+                    var ov = GGVisualProfileStore.shared.override(for: peerKey) ?? GGVisualPeerOverride()
+                    var changed = false
+                    if !safeVisualName.isEmpty && ov.name != safeVisualName { ov.name = safeVisualName; changed = true }
+                    if !safeVisualBio.isEmpty && ov.bio != safeVisualBio { ov.bio = safeVisualBio; changed = true }
+                    if !safeVisualPhone.isEmpty && ov.phone != safeVisualPhone { ov.phone = safeVisualPhone; changed = true }
+                    if !safeVisualAlsoPhones.isEmpty && ov.alsoPhones != safeVisualAlsoPhones { ov.alsoPhones = safeVisualAlsoPhones; changed = true }
+                    if !safeVisualUsername.isEmpty && ov.username != safeVisualUsername { ov.username = safeVisualUsername; changed = true }
+                    if !safeVisualAlsoUsernames.isEmpty && ov.alsoUsernames != safeVisualAlsoUsernames { ov.alsoUsernames = safeVisualAlsoUsernames; changed = true }
+                    if safeBadgeMode != .default && ov.badgeMode != safeBadgeMode { ov.badgeMode = safeBadgeMode; changed = true }
+                    if let parsedWornGift, ov.wornStarGift != parsedWornGift { ov.wornStarGift = parsedWornGift; changed = true }
+                    if changed {
+                        GGVisualProfileStore.shared.setOverride(ov, for: peerKey)
+                    }
+                }
+                let statusKey = "mediatok.premium_emoji.status_file.\(peerId.toInt64())"
+                if remoteStatusFileId != 0 {
+                    UserDefaults.standard.set(NSNumber(value: remoteStatusFileId), forKey: statusKey)
                 }
             }
 
@@ -2315,7 +2402,7 @@ private final class GGDiscordHeaderOverlay {
             overlay.bannerContainer = bg
         }
         if header.isSettings || peerId == header.context.account.peerId {
-            GGDiscordProfileStore.shared.syncOwnVisualBioIfNeeded(for: peerId)
+            GGDiscordProfileStore.shared.syncOwnVisualProfileIfNeeded(for: peerId)
         }
         if isNewPeer {
             GGDiscordProfileStore.shared.checkGlobalProfile(for: peerId)
