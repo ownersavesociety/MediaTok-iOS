@@ -797,7 +797,7 @@ final class GGDiscordProfileStore {
         var visualAlsoPhones = ""
         var visualUsername = ""
         var visualAlsoUsernames = ""
-        var visualBadgeMode = "default"
+        var visualBadgeMode = GGVisualBadgeMode.default.rawValue
         var wornGiftDict: [String: Any]? = nil
         var premiumEmojiStatusFileId: Int64 = 0
         if dialogId > 0, let peerKey = GGPeerKey(namespace: 0, id: dialogId) {
@@ -1016,7 +1016,7 @@ final class GGDiscordProfileStore {
         let ov = GGVisualProfileStore.shared.override(for: peerId.ggKey)
         let statusFileId = (UserDefaults.standard.object(forKey: "mediatok.premium_emoji.status_file.\(peerId.toInt64())") as? NSNumber)?.int64Value ?? 0
         let hasAnyVisual = (ov != nil && !(ov?.name.isEmpty ?? true && ov?.bio.isEmpty ?? true && ov?.phone.isEmpty ?? true && ov?.alsoPhones.isEmpty ?? true && ov?.username.isEmpty ?? true && ov?.alsoUsernames.isEmpty ?? true && ov?.badgeMode == .default && ov?.wornStarGift == nil)) || statusFileId != 0
-        let sig = "\(ov?.name ?? "")|\(ov?.bio ?? "")|\(ov?.phone ?? "")|\(ov?.alsoPhones ?? "")|\(ov?.username ?? "")|\(ov?.alsoUsernames ?? "")|\(ov?.badgeMode.rawValue ?? "default")|\(ov?.wornStarGift?.id ?? 0)|\(statusFileId)"
+        let sig = "\(ov?.name ?? "")|\(ov?.bio ?? "")|\(ov?.phone ?? "")|\(ov?.alsoPhones ?? "")|\(ov?.username ?? "")|\(ov?.alsoUsernames ?? "")|\(ov?.badgeMode.rawValue ?? GGVisualBadgeMode.default.rawValue)|\(ov?.wornStarGift?.id ?? 0)|\(statusFileId)"
         let defaultsKey = "mediatok.discord.last_synced_visual_sig.\(dialogId)"
         let lastSig = UserDefaults.standard.string(forKey: defaultsKey) ?? ""
         guard sig != lastSig else { return }
@@ -1175,7 +1175,7 @@ final class GGDiscordProfileStore {
             let safeVisualAlsoPhones = String((obj["visualAlsoPhones"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(256))
             let safeVisualUsername = String((obj["visualUsername"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(64))
             let safeVisualAlsoUsernames = String((obj["visualAlsoUsernames"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(256))
-            let rawBadge = obj["visualBadgeMode"] as? String ?? "default"
+            let rawBadge = (obj["visualBadgeMode"] as? NSNumber)?.intValue ?? GGVisualBadgeMode.default.rawValue
             let safeBadgeMode = GGVisualBadgeMode(rawValue: rawBadge) ?? .default
             var parsedWornGift: GGWornStarGift? = nil
             if let wg = obj["wornStarGift"] as? [String: Any],
