@@ -1,0 +1,215 @@
+import Foundation
+import Postbox
+import TelegramCore
+import MTCore
+
+/// The parts of ghost mode that can be switched per function and per chat.
+public enum MTGhostFunction {
+    case readReceipts
+    case storyViews
+    case online
+    case typing
+}
+
+/// Why a chat is (or is not) an exception.
+public enum MTGhostExceptionSource: Equatable {
+    case none
+    /// An explicit entry in the chat list of exceptions.
+    case explicit(MTGhostException)
+    /// «Все каналы» / «Все группы».
+    case type
+    /// A folder chosen as an exception.
+    case folder
+    /// The chat's type or folder is an exception, but the chat was pulled back into ghost mode.
+    case forced
+}
+
+/// Ghost mode resolved for one account. Every answer is computed from the settings snapshot of
+/// MTCore (no disk, no UserDefaults, no JSON) plus the in-memory peer kinds, so it may be asked on
+/// any queue, inside Postbox transactions included.
+public enum MTGhostPolicy {
+    /// The master switch.
+    public static func isEnabled(_ account: MTAccountID) -> Bool {
+        return MTGhostSettings.isEnabled.value(for: account)
+    }
+
+    /// Whether the function is switched on for the account, regardless of chat.
+    public static func isFunctionOn(_ function: MTGhostFunction, account: MTAccountID) -> Bool {
+        if !MTGhostPolicy.isEnabled(account) {
+            return false
+        }
+        switch function {
+        case .readReceipts:
+            return MTGhostSettings.hideReadReceipts.value(for: account)
+        case .storyViews:
+            return MTGhostSettings.hideStoryViews.value(for: account)
+        case .online:
+            return MTGhostSettings.hideOnline.value(for: account)
+        case .typing:
+            return MTGhostSettings.hideTyping.value(for: account)
+        }
+    }
+
+    /// Explicit entry of a chat; a secret chat falls back to its user's entry.
+    public static func explicitException(for peerId: PeerId, account: MTAccountID) -> MTGhostException? {
+        let exceptions = MTGhostSettings.exceptions.value(for: account)
+        if exceptions.isEmpty {
+            return nil
+        }
+        if let exception = exceptions[peerId.mtGhostKey] {
+            return exception
+        }
+        if peerId.namespace == Namespaces.Peer.SecretChat, case let .secretChat(user)? = MTGhostPeerTraits.shared.kind(of: peerId, account: account) {
+            return exceptions[user.mtGhostKey]
+        }
+        return nil
+    }
+
+    /// Whether the chat's type or one of its folders is an exception.
+    public static func isExceptedByTypeOrFolder(_ peerId: PeerId, account: MTAccountID) -> (byType: Bool, byFolder: Bool) {
+        let allChannels = MTGhostSettings.exceptAllChannels.value(for: account)
+        let allGroups = MTGhostSettings.exceptAllGroups.value(for: account)
+        let folders = MTGhostSettings.exceptFolders.value(for: account)
+        if !allChannels && !allGroups && folders.isEmpty {
+            return (false, false)
+        }
+        let kind = MTGhostPeerTraits.shared.kind(of: peerId, account: account)
+        var byType = false
+        if let kind = kind {
+            switch kind {
+            case .channel:
+                byType = allChannels
+            case .basicGroup, .supergroup:
+                byType = allGroups
+            default:
+                break
+            }
+        }
+        let byFolder = MTGhostPeerTraits.shared.isInFolders(folders, peerId: peerId, kind: kind, account: account)
+        return (byType, byFolder)
+    }
+
+    public static func exceptionSource(for peerId: PeerId, account: MTAccountID) -> MTGhostExceptionSource {
+        let explicit = MTGhostPolicy.explicitException(for: peerId, account: account)
+        if let explicit = explicit, explicit.kind == .exclude {
+            return .explicit(explicit)
+        }
+        let (byType, byFolder) = MTGhostPolicy.isExceptedByTypeOrFolder(peerId, account: account)
+        if !byType && !byFolder {
+            return .none
+        }
+        if explicit?.kind == .include {
+            return .forced
+        }
+        return byType ? .type : .folder
+    }
+
+    /// The exception that applies to the chat, nil when ghost mode applies in full.
+    public static func effectiveException(for peerId: PeerId, account: MTAccountID) -> MTGhostException? {
+        switch MTGhostPolicy.exceptionSource(for: peerId, account: account) {
+        case .none, .forced:
+            return nil
+        case let .explicit(exception):
+            return exception
+        case .type, .folder:
+            return .fullExclusion
+        }
+    }
+
+    /// Whether ghost mode keeps `function` from the chat (`peerId == nil`: "any chat", i.e. the
+    /// function itself).
+    public static func hides(_ function: MTGhostFunction, peerId: PeerId?, account: MTAccountID) -> Bool {
+        if !MTGhostPolicy.isFunctionOn(function, account: account) {
+            return false
+        }
+        guard let peerId = peerId else {
+            return true
+        }
+        guard let exception = MTGhostPolicy.effectiveException(for: peerId, account: account) else {
+            return true
+        }
+        switch function {
+        case .readReceipts:
+            return !exception.readMessages
+        case .storyViews:
+            return !exception.readStories
+        case .online:
+            return !exception.showOnline
+        case .typing:
+            return !exception.showTyping
+        }
+    }
+
+    /// Statuses still sent in the chat while «печатает» is hidden there.
+    public static func shownActivities(for peerId: PeerId, account: MTAccountID) -> Set<MTGhostActivityKind> {
+        if let exception = MTGhostPolicy.effectiveException(for: peerId, account: account), let own = exception.ownShownActivities {
+            return Set(own)
+        }
+        var result = Set<MTGhostActivityKind>()
+        for kind in MTGhostActivityKind.allCases where MTGhostSettings.shownActivity(kind).value(for: account) {
+            result.insert(kind)
+        }
+        return result
+    }
+
+    /// «Читать при действиях» for the chat: the exception's own value, else the global switch. Only
+    /// meaningful while ghost mode keeps read receipts there.
+    public static func readsOnAction(in peerId: PeerId, account: MTAccountID) -> Bool {
+        if let exception = MTGhostPolicy.effectiveException(for: peerId, account: account), let value = exception.readOnAction {
+            return value
+        }
+        return MTGhostSettings.readOnAction.value(for: account)
+    }
+}
+
+/// Send delay («Отложенная отправка»): the one decision every path uses — the stored sends and the
+/// standalone senders (share extension, quick forward, Siri) ask the same `MTOutgoingHooks.sendDelay`.
+public enum MTSendDelayPolicy {
+    /// nil = send now. One delay for text and media. `peer` is the chat as stored (asked inside the
+    /// transaction); only when Postbox does not know it does the peer kind cache decide «bot».
+    public static func scheduleTime(account: MTAccountID, accountPeerId: PeerId, peerId: PeerId, peer: Peer?, serverTime: Double) -> Int32? {
+        if !MTGhostSettings.sendDelayEnabled.value(for: account) {
+            return nil
+        }
+        // «Избранное» is a notebook: a scheduled message there is a reminder, not a hidden send.
+        if peerId == accountPeerId {
+            return nil
+        }
+        // Secret chats can not schedule; bots refuse scheduled messages (SCHEDULE_BOT_NOT_ALLOWED).
+        if peerId.namespace == Namespaces.Peer.SecretChat {
+            return nil
+        }
+        if let peer {
+            if let user = peer as? TelegramUser, user.botInfo != nil {
+                return nil
+            }
+        } else if MTGhostPeerTraits.shared.isBot(peerId, account: account) {
+            return nil
+        }
+        // The server sends at once anything scheduled less than ~10 s ahead: the range keeps a margin.
+        let delay = MTSendDelaySeconds.clamped(MTGhostSettings.sendDelaySeconds.value(for: account))
+        return Int32(serverTime + delay)
+    }
+
+    /// Whether a batch must go out as is: already scheduled, paid, or self-destructing. `attributes`
+    /// — of every message of the batch.
+    public static func mustSendImmediately(_ attributes: [[MessageAttribute]]) -> Bool {
+        for messageAttributes in attributes {
+            for attribute in messageAttributes {
+                if attribute is OutgoingScheduleInfoMessageAttribute {
+                    return true
+                }
+                if attribute is PaidStarsMessageAttribute {
+                    return true
+                }
+                if let attribute = attribute as? AutoremoveTimeoutMessageAttribute, attribute.timeout == viewOnceTimeout {
+                    return true
+                }
+                if let attribute = attribute as? AutoclearTimeoutMessageAttribute, attribute.timeout == viewOnceTimeout {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+}
