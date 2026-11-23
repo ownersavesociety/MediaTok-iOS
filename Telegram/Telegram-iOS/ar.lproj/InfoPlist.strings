@@ -1,0 +1,12 @@
+/* Localized versions of Info.plist keys */
+"CFBundleDisplayName" = "MediaTok"; /* MEDIATOK: app name */
+"NSContactsUsageDescription" = "سيقوم تيليجرام برفع جهات الاتصال الخاصة بك باستمرار إلى خوادم التخزين السحابية ذات التشفير العالي لتتمكن من التواصل مع أصدقائك من خلال جميع أجهزتك."; /* MEDIATOK: Telegram's cloud, the name stays */
+"NSLocationWhenInUseUsageDescription" = "عندما ترغب في مشاركة مكانك مع أصدقائك، MediaTok يحتاج لصلاحيات لعرض الخريطة لهم."; /* MEDIATOK: app name */
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "عندما تختار أن تشارك مكانك بشكل حي مع أصدقائك في المحادثة، يحتاج MediaTok إلى الوصول لموقعك في الخلفية حتى بعد إغلاق MediaTok خلال فترة المشاركة."; /* MEDIATOK: app name */
+"NSLocationAlwaysUsageDescription" = "عندما تقوم بمشاركة موقعك مع أصدقائك، MediaTok يحتاج إلى الصلاحية ليعرض لهم الخريطة. كما تحتاج لإعطاء MediaTok الصلاحية لتتمكن من إرسال موقعك من ساعة آبل."; /* MEDIATOK: app name */
+"NSCameraUsageDescription" = "نحتاج ذلك لتتمكن من التقاط وإرسال الصور والفيديوهات.";
+"NSPhotoLibraryUsageDescription" = "نحتاج ذلك لتتمكن من إرسال الصور والفيديوهات من ألبوم الصور.";
+"NSPhotoLibraryAddUsageDescription" = "نحتاج هذه الصلاحية لتتمكن من حفظ وسائطك في مكتبة الصور الخاصة بك.";
+"NSMicrophoneUsageDescription" = "نحتاج ذلك لتتمكن من تسجيل رسائل صوتية وفيديوهات بالصوت لترسلها..";
+"NSSiriUsageDescription" = "يمكنك استخدام سيري لإرسال رسائلك.";
+"NSFaceIDUsageDescription" = "يمكنك استخدام Face ID لفتح قفل التطبيق.";
