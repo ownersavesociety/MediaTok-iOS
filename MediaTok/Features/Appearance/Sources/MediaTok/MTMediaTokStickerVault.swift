@@ -464,6 +464,11 @@ final class MTStickerVaultStore {
     }
 
     func setGeminiApiKey(_ key: String) {
+        self.lock.lock()
+        self.cachedGeminiModelId = nil
+        self.cachedGeminiApiKey = nil
+        self.lock.unlock()
+
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         let baseQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -489,10 +494,18 @@ final class MTStickerVaultStore {
     }
 
     private var cachedGeminiModelId: String?
+    private var cachedGeminiApiKey: String?
 
     func resolveActiveGeminiFlashModel(apiKey: String, completion: @escaping (String) -> Void) {
         self.lock.lock()
-        let cached = self.cachedGeminiModelId
+        let cached: String?
+        if self.cachedGeminiApiKey == apiKey {
+            cached = self.cachedGeminiModelId
+        } else {
+            self.cachedGeminiModelId = nil
+            self.cachedGeminiApiKey = apiKey
+            cached = nil
+        }
         self.lock.unlock()
         if let cached, !cached.isEmpty {
             completion(cached)
@@ -509,10 +522,12 @@ final class MTStickerVaultStore {
         session.dataTask(with: req) { [weak self] data, response, _ in
             defer { session.finishTasksAndInvalidate() }
             var chosen = "gemini-flash-latest"
+            var resolved = false
             if let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode),
                let data,
                let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                let models = obj["models"] as? [[String: Any]] {
+                resolved = true
                 var textModels: [String] = []
                 for item in models {
                     guard let rawName = item["name"] as? String else { continue }
@@ -544,7 +559,11 @@ final class MTStickerVaultStore {
             }
             if let self {
                 self.lock.lock()
-                self.cachedGeminiModelId = chosen
+                if resolved && self.cachedGeminiApiKey == apiKey {
+                    self.cachedGeminiModelId = chosen
+                } else if !resolved && self.cachedGeminiApiKey == apiKey {
+                    self.cachedGeminiModelId = nil
+                }
                 self.lock.unlock()
             }
             completion(chosen)
@@ -576,11 +595,17 @@ final class MTStickerVaultStore {
             req.httpBody = body
 
             let session = URLSession(configuration: .ephemeral)
-            session.dataTask(with: req) { [weak self] data, _, error in
+            session.dataTask(with: req) { [weak self] data, response, error in
                 defer { session.finishTasksAndInvalidate() }
                 if let error {
                     DispatchQueue.main.async { completion(.failure(MTGeminiTextError(message: error.localizedDescription))) }
                     return
+                }
+                if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode), let self {
+                    self.lock.lock()
+                    self.cachedGeminiModelId = nil
+                    self.cachedGeminiApiKey = nil
+                    self.lock.unlock()
                 }
                 guard let data,
                       let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -592,6 +617,7 @@ final class MTStickerVaultStore {
                     if let self {
                         self.lock.lock()
                         self.cachedGeminiModelId = nil
+                        self.cachedGeminiApiKey = nil
                         self.lock.unlock()
                     }
                     DispatchQueue.main.async { completion(.failure(MTGeminiTextError(message: msg))) }
@@ -650,14 +676,23 @@ final class MTStickerVaultStore {
             let session = URLSession(configuration: .ephemeral)
             session.dataTask(with: req) { data, response, _ in
                 defer { session.finishTasksAndInvalidate() }
-                guard let http = response as? HTTPURLResponse,
-                      (200 ... 299).contains(http.statusCode),
-                      let data,
-                      let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                let httpStatus = (response as? HTTPURLResponse)?.statusCode
+                let parsedObj = data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+                guard let status = httpStatus,
+                      (200 ... 299).contains(status),
+                      let obj = parsedObj,
+                      obj["error"] == nil,
                       let cands = obj["candidates"] as? [[String: Any]],
                       let content = cands.first?["content"] as? [String: Any],
                       let parts = content["parts"] as? [[String: Any]],
                       let text = parts.first?["text"] as? String else {
+                    let isHttpError = httpStatus.map { !(200 ... 299).contains($0) } ?? false
+                    if isHttpError || parsedObj?["error"] != nil {
+                        self.lock.lock()
+                        self.cachedGeminiModelId = nil
+                        self.cachedGeminiApiKey = nil
+                        self.lock.unlock()
+                    }
                     DispatchQueue.main.async { completion?(nil) }
                     return
                 }

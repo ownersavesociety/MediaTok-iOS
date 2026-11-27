@@ -345,12 +345,10 @@ enum MTMediaTokWave4Tools {
                 .foregroundColor: UIColor.white
             ])
 
-            let e2eState = MTMediaTokE2E.isEnabled(for: peerId) ? "AES-256 ВКЛ 🔐" : "Стандарт ТГ"
             let guardState = MTMediaTokAudioGuard.modeLabel
             let fontName = MTFonts.selectedDisplayName
             let lines = [
                 "• ID чата: \(peerId.id._internalGetInt64Value())",
-                "• Шифрование E2E: \(e2eState)",
                 "• Анти-Скример / Стоны: \(guardState) 🛡",
                 "• Активный шрифт: \(fontName)",
                 "• Клиент: MediaTok iOS 4K"

@@ -1654,11 +1654,11 @@ private func mtMakeNativeSpotlightPaletteController(
             symbol: "arcade.stick.console.fill",
             tint: UIColor(red: 0.56, green: 0.84, blue: 0.36, alpha: 1.0),
             title: "Мини-игры MediaTok",
-            subtitle: "2048, Сапёр 8x8 и аркады без интернета",
+            subtitle: "2048 и Крестики-нолики без интернета",
             keywords: "games игры 2048 сапер minesweeper",
             action: {
                 runAfterDismiss {
-                    MTMediaTokWave5Tools.presentMiniGamesHub()
+                    MTMediaTokWave11Tools.presentMiniGames(context: ctx, peerId: nil, initialTab: 1)
                 }
             }
         ))
@@ -1739,35 +1739,6 @@ private func mtMakeNativeSpotlightPaletteController(
                     } else if let nav = ctx.sharedContext.mainWindow?.viewController as? NavigationController {
                         nav.pushViewController(mtMakeSettingsController(context: ctx))
                         MTMediaTokWave5Tools.showToast(context: ctx, text: "Открой Оформление › Студия языков")
-                    }
-                }
-            }
-        ))
-        items.append(MTSpotlightCommandItem(
-            symbol: "lock.shield.fill",
-            tint: UIColor(red: 0.28, green: 0.84, blue: 0.62, alpha: 1.0),
-            title: "E2E Шифрование (AES-256-GCM)",
-            subtitle: "Управление ключами шифрования чатов",
-            keywords: "e2e aes шифрование ключ приватность",
-            action: {
-                runAfterDismiss {
-                    if let mCtx {
-                        MTMediaTokE2E.presentManager(context: mCtx)
-                    } else {
-                        let count = MTMediaTokE2E.activeCount
-                        let alert = UIAlertController(
-                            title: "E2E-шифрование чатов (AES-256-GCM)",
-                            message: "Активно чатов: \(count) (ключи защищены в Keychain + PBKDF2).\n\nВключить E2E для любого чата можно долгим нажатием на «Отправить» или командой .e2e on <пароль>.",
-                            preferredStyle: .alert
-                        )
-                        if count > 0 {
-                            alert.addAction(UIAlertAction(title: "Сбросить все E2E-ключи (\(count))", style: .destructive, handler: { _ in
-                                MTMediaTokE2E.removeAll()
-                                MTMediaTokWave5Tools.showToast(context: ctx, text: "Все E2E-ключи сброшены")
-                            }))
-                        }
-                        alert.addAction(UIAlertAction(title: "OK", style: .default))
-                        MTModalPresenter.presentOnTopmost(alert)
                     }
                 }
             }

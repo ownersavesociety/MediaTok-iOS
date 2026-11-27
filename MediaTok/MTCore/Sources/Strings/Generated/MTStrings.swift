@@ -938,23 +938,6 @@ public enum MTStrings {
             }
         }
 
-        public enum E2e {
-            /// e2e encryption aes key password secret chat
-            public static var keywords: Swift.String {
-                return MTLocalization.shared.string("appearance.e2e.keywords")
-            }
-
-            /// Per-chat AES-256-GCM encryption with shared passphrase
-            public static var subtitle: Swift.String {
-                return MTLocalization.shared.string("appearance.e2e.subtitle")
-            }
-
-            /// Per-Chat E2E Encryption
-            public static var title: Swift.String {
-                return MTLocalization.shared.string("appearance.e2e.title")
-            }
-        }
-
         public enum Edges {
             /// Color
             public static var color: Swift.String {

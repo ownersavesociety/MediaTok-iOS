@@ -256,7 +256,7 @@ enum MTAppearanceMenu {
             section: rootMediaTokSection,
             order: 500,
             title: { "Все фичи MediaTok Studio" },
-            subtitle: { "Spotlight, LRC, ГС, языки, E2E AES-256, Anti-Screamer, AdBlock, Call Guard" },
+            subtitle: { "Spotlight, LRC, ГС, языки, Anti-Screamer, AdBlock, Call Guard" },
             icon: .system("square.grid.2x2"),
             kind: .action({ context in
                 context.open(tab: .appearanceMessages)
@@ -337,23 +337,6 @@ enum MTAppearanceMenu {
             label: { context in
                 let p = MTDiscordProfileStore.shared.profile(for: context.context.account.peerId)
                 return (p != nil && !(p?.isEmpty ?? true)) ? "ON" : "4K"
-            }
-        ))
-
-        // Per-chat AES-256-GCM E2E Encryption manager.
-        MTMenuRegistry.register(MTMenuRow(
-            id: "appearance.mediatok.e2e",
-            section: mediaTokSection,
-            order: 300,
-            title: { MTStrings.Appearance.E2e.title },
-            subtitle: { MTStrings.Appearance.E2e.subtitle },
-            kind: .action({ context in
-                MTMediaTokE2E.presentManager(context: context)
-            }),
-            searchKeywords: { [MTStrings.Appearance.E2e.keywords] },
-            label: { _ in
-                let n = MTMediaTokE2E.activeCount
-                return n > 0 ? "\(n)" : "AES"
             }
         ))
 
